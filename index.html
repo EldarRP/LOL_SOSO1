@@ -17,7 +17,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .bar{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:8px;gap:8px}
 .pl{flex:1;padding:6px 8px;border-radius:4px;background:var(--card);border:1px solid var(--ln);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .pl.turn{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac) inset}
-.board{display:grid;grid-template-columns:84px 1fr 84px;gap:8px;align-items:start}
+.board{display:grid;grid-template-columns:80px minmax(0,1fr) 80px;gap:8px;align-items:start}
 .col{display:flex;flex-direction:column;gap:8px}
 .slot{height:104px;border:2px dashed var(--ln);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;text-align:center;padding:4px;color:var(--mut);background:var(--card)}
 .slot.f{border-style:solid;color:var(--tx);animation:pop .5s}
@@ -96,6 +96,13 @@ textarea.in{resize:none;font-family:inherit}
 @keyframes ring{0%,50%,100%{transform:rotate(0)}10%,30%{transform:rotate(-14deg)}20%,40%{transform:rotate(14deg)}}
 #notif{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto}
 #dbGrid{grid-template-columns:repeat(3,1fr)}#dbGrid .dbtn b{font-size:10px}
+#dbGrid{grid-template-columns:repeat(3,minmax(0,1fr));column-gap:4px;row-gap:12px}
+#dbGrid .dbtn{padding:4px 1px;min-width:0;overflow:hidden}
+#dbGrid .dbtn span{font-size:16px}
+#dbGrid .dbtn b{font-size:9px;line-height:1.15;white-space:nowrap}
+.dbtn.t0:not(.on){border-color:#3ecf8e99}.dbtn.t1:not(.on){border-color:#f2a90099}.dbtn.t2:not(.on){border-color:#ff4d4d99;background:#2a1418}
+.slot.dead{filter:grayscale(1);opacity:.45}
+.slot{padding:3px}
 </style></head><body>
 <button id="mail" class="hide" aria-label="Уведомления">✉️<span id="mailN"></span></button>
 <div id="notif" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
@@ -244,13 +251,19 @@ function effOf(side,i){
 }
 function cardHtml(side,i){
   const sh=side==='me'?shown.me:shown.opp,c=sh[i],x=CH[c],e=effOf(side,i);
-  return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${stat(e.a,x.a,'⚔')} ${stat(e.t,x.t,'🧠')} ${stat(e.d,x.d,'🛡')}</div>${e.deb?`<div class="bd">${e.deb.e} ${e.blocked?'выбыл':e.deb.n}</div>`:''}`;
+  return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${e.blocked?'не в бою':stat(e.a,x.a,'⚔')+' '+stat(e.t,x.t,'🧠')+' '+stat(e.d,x.d,'🛡')}</div>${e.blocked?'<div class="bd">'+e.deb.e+' выбыл</div>':(e.deb?`<div class="bd">${e.deb.e} ${e.deb.n}</div>`:'')}`;
 }
+const rv=()=>stage==='trans'||stage==='spin'||stage==='battle';
 function drawSlots(){
   for(const [id,side] of [['cMe','me'],['cOpp','opp']]){
     const arr=side==='me'?shown.me:shown.opp;
-    const dd=side==='me'?(opp&&opp.deb):myDeb;
-    $(id).innerHTML=idx(side).map(i=>arr[i]!==undefined?`<div class="slot f r${rar(arr[i])}">${cardHtml(side,i)}</div>`:`<div class="slot" data-i="${i+1}"><div class="e" style="font-size:26px">?</div>карта ${i+1}${dd&&DB[dd.k]&&(DB[dd.k].all||dd.slot===i+1)?`<div class="bd">${DB[dd.k].e} ${DB[dd.k].n}</div>`:''}</div>`).join('');
+    const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
+    const n=rv()?(side==='me'?nMe():nOp()):3;
+    $(id).innerHTML=Array.from({length:n},(_,i)=>i).map(i=>{
+      if(arr[i]!==undefined){const dead=effOf(side,i).blocked;return `<div class="slot f r${rar(arr[i])}${dead?' dead':''}">${cardHtml(side,i)}</div>`}
+      const hit=dd&&DB[dd.k]&&(DB[dd.k].all||dd.slot===i+1);
+      return `<div class="slot${hit&&DB[dd.k].block?' dead':''}" data-i="${i+1}"><div class="e" style="font-size:26px">?</div>карта ${i+1}${hit?`<div class="bd">${DB[dd.k].e} ${DB[dd.k].block?'выбыл':DB[dd.k].n}</div>`:''}</div>`;
+    }).join('');
   }
 }
 const rnd=()=>Math.floor(Math.random()*CH.length);
@@ -320,7 +333,6 @@ function update(){
     const dt=debTurn();
     if(dt){
       $('pMe').classList.toggle('turn',dt==='me');$('pOpp').classList.toggle('turn',dt==='opp');
-      if($('cOpp').querySelectorAll('.slot').length!==nOp()||$('cMe').querySelectorAll('.slot').length!==nMe())drawSlots();
       $('cOpp').classList.toggle('pick',dt==='me');
       if(dt==='me'){stgOff('dbWait');stgOn('dbPick')}else{stgOff('dbPick');stgOn('dbWait')}
       setMsg('');
@@ -376,7 +388,7 @@ async function battle(){
   if(pendingStory)finish(pendingStory);
 }
 async function askStory(){
-  const nm=side=>idx(side).map(i=>{const e=effOf(side,i);return CH[e.c].n+' (атака '+e.a+', тактика '+e.t+', защита '+e.d+(e.deb?', ухудшение «'+e.deb.n+'»':'')+')'}).join('; ');
+  const nm=side=>idx(side).map(i=>{const e=effOf(side,i);return CH[e.c].n+' (атака '+e.a+', тактика '+e.t+', защита '+e.d+(e.deb?', ухудшение «'+e.deb.n+'»':'')+(e.blocked?', выбыл из боя':'')+')'}).join('; ');
   const wn=side=>idx(side).map(i=>CH[effOf(side,i).c].n).join(', ');
   const prompt=`Ты рассказчик в игре по «My Little Pony». Бой в воде.\nКоманда A: ${nm('me')}.\nКоманда B: ${nm('opp')}.\nНанесённый урон: A — ${sa.toFixed(1)}, B — ${sb.toFixed(1)}. Победила команда ${meWin?'A':'B'}. Коротко (2–3 предложения, по-русски) опиши, как проходил бой, учитывая атаку, тактику, защиту и ухудшения. Без заголовков и списков.`;
   let t='';
@@ -422,7 +434,7 @@ async function startGame(){
   lb.classList.add('hide');$('game').classList.remove('hide');$('game').classList.add('fadein');
   $('pMe').textContent='Ты: '+ME.name;$('pOpp').textContent=opp.name||'Соперник';
   drawSlots();idleStrip();
-  $('dbGrid').innerHTML=DB.map((d,i)=>`<button class="dbtn" data-k="${i}"><span>${d.e}</span><b>${d.n}</b></button>`).join('');
+  $('dbGrid').innerHTML=DB.map((d,i)=>`<button class="dbtn t${Math.floor(i/3)}" data-k="${i}"><span>${d.e}</span><b>${d.n}</b></button>`).join('');
   const chk=()=>{$('dbOk').disabled=!(debSel>=0&&(DB[debSel].all||slotSel>0))};
   $('dbGrid').querySelectorAll('button').forEach(b=>b.onclick=()=>{if(lock)return;debSel=+b.dataset.k;$('dbHint').textContent=DB[debSel].txt+(DB[debSel].all?'':' · нажми слот соперника ➜');$('dbGrid').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));chk()});
   $('cOpp').onclick=e=>{
