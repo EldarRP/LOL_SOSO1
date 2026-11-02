@@ -103,8 +103,29 @@ textarea.in{resize:none;font-family:inherit}
 .dbtn.t0:not(.on){border-color:#3ecf8e99}.dbtn.t1:not(.on){border-color:#f2a90099}.dbtn.t2:not(.on){border-color:#ff4d4d99;background:#2a1418}
 .slot.dead{filter:grayscale(1);opacity:.45}
 .slot{padding:3px}
+
+.scrIn{animation:scrIn .32s ease both}@keyframes scrIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.scrOut{opacity:0!important;transform:translateY(-8px);transition:opacity .18s ease,transform .18s ease}
+#lobby.busy{pointer-events:none}
+#mail{transition:opacity .4s ease,transform .4s ease}
+#mail.off{opacity:0;pointer-events:none;transform:scale(.6)}
+.srv{animation:scrIn .3s ease both}
+.btn{transition:transform .12s ease,filter .25s ease,opacity .3s ease}.btn:active:not(:disabled){transform:scale(.97)}
+.dbtn:active{transform:scale(.95)}
+.pl{transition:border-color .3s ease,box-shadow .3s ease}
+.win{animation:pop .6s ease}
+@media(prefers-reduced-motion:reduce){.scrIn,.srv,.win{animation:none}}
+#loader{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .55s ease;text-align:center;padding:20px}
+#loader.out{opacity:0;pointer-events:none}
+#loader .lg{font-size:68px;animation:bob 1.3s ease-in-out infinite}
+#loader .lt{font-size:22px;font-weight:900;letter-spacing:4px;text-transform:uppercase;background:linear-gradient(90deg,var(--ac),var(--ac2));-webkit-background-clip:text;background-clip:text;color:transparent}
+#loader .bar{width:190px;height:6px;border-radius:3px;background:var(--ln);overflow:hidden}
+#loader .bar i{display:block;height:100%;width:40%;border-radius:3px;background:linear-gradient(90deg,var(--ac),var(--ac2));animation:ld 1.1s ease-in-out infinite}
+@keyframes ld{0%{margin-left:-40%}100%{margin-left:100%}}
+#lmsg{font-size:13px;color:var(--mut);max-width:260px;min-height:34px}
 </style></head><body>
-<button id="mail" class="hide" aria-label="Уведомления">✉️<span id="mailN"></span></button>
+<div id="loader"><div class="lg">⚔️</div><div class="lt">Пони-Арена</div><div class="bar"><i></i></div><div id="lmsg">Загрузка…</div></div>
+<button id="mail" class="off" aria-label="Уведомления">✉️<span id="mailN"></span></button>
 <div id="notif" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
 <h1>⚔️ Пони-Арена</h1><div class="sub">Дуэль 1 на 1 · три карты · бой в воде</div>
 
@@ -403,7 +424,7 @@ function finish(t){
   if(!fieldReady){pendingStory=t;return}
   finished=true;
   setMsg('');
-  $('res').classList.remove('hide');
+  pop($('res'));
   recordResult();
   $('winTxt').className='win'+(meWin?'':' lose');
   $('winTxt').textContent=(meWin?'🏆 Победа! ':'💔 Поражение. ')+(meWin?ME.name:opp.name)+' побеждает';
@@ -429,7 +450,7 @@ function onOpp(p){
 }
 async function startGame(){
   if(coinDone||$('game').dataset.s)return;$('game').dataset.s=1;
-  $('mail').classList.add('hide');$('notif').classList.add('hide');
+  $('mail').classList.add('off');$('notif').classList.add('hide');
   setMsg('');
   const lb=$('lobby');lb.style.transition='opacity .6s ease';lb.style.opacity='0';
   await wait(650);
@@ -456,7 +477,7 @@ let round=0,baseRoom='',oppLeft=false;
 function rematchUI(){
   if(!(finished||gone))return;
   const b=$('again');
-  b.classList.remove('hide');$('toMenu').classList.remove('hide');
+  pop(b);pop($('toMenu'));
   const left=gone||oppLeft;
   if(left){b.disabled=true;b.textContent='Соперник вышел';setMsg('Соперник вышел из игры');return}
   if(myState.rm===1){b.disabled=true;b.textContent='Ждём ответа соперника…';setMsg('');return}
@@ -517,7 +538,18 @@ let cli=null,sid='',oppId='',hb=null,servers={},rt=null,myState={id:ME.id,name:M
 const err=t=>{$('err').textContent=t||''};
 const hs=p=>{let h=5381;for(const c of p)h=((h<<5)+h+c.charCodeAt(0))>>>0;return String(h)};
 let scr='';
-function show(id){scr=id;['auth','home','profile','friends','menu','create','browse','waitBox'].forEach(x=>$(x).classList.toggle('hide',x!==id));err('')}
+let showTk=0;
+const SCR=['auth','home','profile','friends','menu','create','browse','waitBox'];
+function pop(el){if(el.classList.contains('hide')){el.classList.remove('hide');el.classList.remove('scrIn');void el.offsetWidth;el.classList.add('scrIn')}}
+function show(id){
+  err('');
+  const cur=SCR.find(x=>!$(x).classList.contains('hide')),tk=++showTk;scr=id;
+  if(cur===id){$(id).classList.remove('scrOut');$('lobby').classList.remove('busy');return}
+  const enter=()=>{SCR.forEach(x=>{if(x!==id)$(x).classList.add('hide')});const n=$(id);n.classList.remove('hide','scrOut','scrIn');void n.offsetWidth;n.classList.add('scrIn');$('lobby').classList.remove('busy')};
+  if(!cur){enter();return}
+  $('lobby').classList.add('busy');$(cur).classList.add('scrOut');
+  setTimeout(()=>{if(tk!==showTk)return;$(cur).classList.remove('scrOut');enter()},190);
+}
 let mqttP=null;
 function loadMqtt(){
   if(window.mqtt)return Promise.resolve();
@@ -709,6 +741,7 @@ function onUser(u){
     if(!v){if(!regBusy){err('Профиль не найден, войди заново');auth.signOut()}return}
     me={uid:u.uid,...v};ME.name=v.nick;myState.name=v.nick;renderHome();renderProfile();
     if(scr===''||scr==='auth')show('home');
+    hideLoader();
   });
   meOff.push(()=>ref.off('value',cb));
   const st=fdb.ref('status/'+u.uid),ic=fdb.ref('.info/connected');
@@ -748,7 +781,7 @@ function renderFr(){
 }
 const NF={req:{},inv:{}};let curInvite=null;
 function renderReq(v){NF.req=v;updateNotif()}
-function updMail(){$('mail').classList.toggle('hide',!(me&&$('game').classList.contains('hide')))}
+function updMail(){$('mail').classList.toggle('off',!(me&&$('game').classList.contains('hide')))}
 function updateNotif(){
   const now=Date.now(),rq=Object.entries(NF.req),iv=Object.entries(NF.inv).filter(([k,v])=>v&&now-v.t<120000),n=rq.length+iv.length;
   $('mailN').textContent=n;$('mailN').style.display=n?'block':'none';
@@ -760,11 +793,16 @@ function updateNotif(){
   rq.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'👤 хочет добавить в друзья'},'Принять',()=>fdb.ref().update({['friends/'+me.uid+'/'+from]:true,['friends/'+from+'/'+me.uid]:true,['requests/'+me.uid+'/'+from]:null}),'✕',()=>fdb.ref('requests/'+me.uid+'/'+from).remove())));
 }
 setInterval(()=>{if(me)updateNotif()},15000);
-$('mail').onclick=()=>{updateNotif();$('notif').classList.toggle('hide')};
-$('nClose').onclick=()=>$('notif').classList.add('hide');
-$('notif').onclick=e=>{if(e.target===$('notif'))$('notif').classList.add('hide')};
+function togNotif(open){
+  const n=$('notif');
+  if(open){n.classList.remove('hide','scrOut','scrIn');void n.offsetWidth;n.classList.add('scrIn')}
+  else if(!n.classList.contains('hide')){n.classList.add('scrOut');setTimeout(()=>{if(n.classList.contains('scrOut')){n.classList.add('hide');n.classList.remove('scrOut')}},200)}
+}
+$('mail').onclick=()=>{updateNotif();togNotif($('notif').classList.contains('hide'))};
+$('nClose').onclick=()=>togNotif(false);
+$('notif').onclick=e=>{if(e.target===$('notif'))togNotif(false)};
 function acceptInvite(v){
-  $('notif').classList.add('hide');
+  togNotif(false);
   tryJoin(v.sid,{hostId:v.hostId,ph:'',name:'дуэль',duel:true});
 }
 async function duelHost(friendUid,friendNick){
@@ -842,8 +880,11 @@ if(fInit()){
   auth.onAuthStateChanged(u=>{
     if(regBusy)return;
     if(u)onUser(u);
-    else{meOff.forEach(f=>f());meOff=[];me=null;renderHome();show('auth')}
+    else{meOff.forEach(f=>f());meOff=[];me=null;renderHome();show('auth');hideLoader()}
   });
-}else{renderHome();show('home')}
+}else{renderHome();show('home');hideLoader()}
+function hideLoader(){const l=$('loader');if(!l||l.classList.contains('out'))return;l.classList.add('out');setTimeout(()=>l.remove(),650)}
+setTimeout(()=>{const m=$('lmsg');if(m)m.textContent='Медленное соединение… попробуй включить VPN или сменить сеть'},7000);
+setTimeout(()=>{if(scr==='')show('home');hideLoader()},16000);
 </script>
 </body></html>
