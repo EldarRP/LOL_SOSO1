@@ -233,7 +233,7 @@ textarea.in{resize:none;font-family:inherit}
     <div id="pfNick" style="font-weight:800;font-size:20px"></div>
     <div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="pfNew" maxlength="12" placeholder="Новый ник" autocapitalize="none" style="margin-top:0"><button class="btn" id="pfRename" style="width:auto;margin-top:0;padding:0 14px;font-size:13px">Сменить</button></div>
     <div id="pfMsg" class="pw" style="min-height:18px;margin-top:4px"></div>
-    <div class="stat3"><div><b id="pfW" style="color:var(--ok)">0</b><div class="pw">Победы</div></div><div><b id="pfL" style="color:#ff6b6b">0</b><div class="pw">Поражения</div></div><div><b id="pfR">–</b><div class="pw">Винрейт</div></div></div>
+    <div class="stat3"><div><b id="pfW" style="color:var(--ok)">0</b><div class="pw">Победы</div></div><div><b id="pfL" style="color:#ff6b6b">0</b><div class="pw">Поражения</div></div><div><b id="pfR">–</b><div class="pw">Винрейт</div></div><div><b id="pfC" style="color:#ffe066">0</b><div class="pw">Комбо</div></div></div>
     <textarea class="in" id="pfBio" maxlength="120" rows="3" placeholder="О себе (по желанию)"></textarea>
     <button class="btn" id="pfSave">Сохранить описание</button>
     <button class="btn sec" id="back4">Назад</button>
@@ -291,6 +291,7 @@ textarea.in{resize:none;font-family:inherit}
     <div class="col stg off" id="cOpp"></div>
   </div>
   <div class="msg" id="msg"></div>
+  <button class="btn sec hide" id="quit">Выйти из боя (поражение)</button>
   <button class="btn hide" id="spin">Крутить рулетку</button>
   <div class="panel hide" id="res"><div class="win" id="winTxt"></div><div class="pw" id="pwTxt"></div><div class="story" id="story"></div></div>
   <button class="btn hide" id="again">Играть снова</button>
@@ -502,6 +503,7 @@ async function reveal(side,card){
   const fid=FUSALL.find(f=>post.includes(f)&&!prev.includes(f)),fusedNow=fid!=null;
   const vilNow=VIL.every(v=>post.includes(v))&&!VIL.every(v=>prev.includes(v));
   const x=CH[card];
+  {const cc=(fusedNow?1:0)+(vilNow?1:0);if(side==='me'&&cc)countCombo(cc)}
   if(fusedNow){
     PRE=true;drawSlots();$('wlab').textContent=x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d;
     await wait(1000);
@@ -560,7 +562,7 @@ async function askStory(){
 function finish(t){
   if(finished)return;
   if(!fieldReady){pendingStory=t;return}
-  finished=true;
+  finished=true;endMatch();
   setMsg('');
   pop($('res'));
   recordResult();
@@ -577,9 +579,10 @@ function showStory(){const s=(opp&&opp.story)||'';if(s)finish(s)}
 function onOpp(p){
   const prev=opp;
   opp=p?{...p.presence}:null;
-  if(opp&&opp.id&&(opp.rd||0)!==round)opp={id:opp.id,name:opp.name,cards:[],rd:opp.rd||0,rm:0};
+  if(opp&&opp.id&&(opp.rd||0)!==round)opp={id:opp.id,name:opp.name,uid:opp.uid,cards:[],rd:opp.rd||0,rm:0};
   if(opp&&opp.id)oppLeft=false;else if(prev)oppLeft=true;
   if(!opp||!opp.id){
+    if(prev&&matchLive&&!finished){forfeitWin();return}
     if(prev&&!gone&&!battleStarted){gone=true;setMsg('Соперник вышел 😔');$('spin').classList.add('hide');rematchUI()}else if(finished)rematchUI();
     return;
   }
@@ -609,6 +612,7 @@ async function startGame(){
     myDeb={k:debSel,slot:DB[debSel].all?null:slotSel};$('dbOk').disabled=true;
     G.presence({deb:myDeb});update();
   };
+  beginMatch();
   flow();
 }
 let round=0,baseRoom='',oppLeft=false;
@@ -640,6 +644,7 @@ function newRound(){
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
   setMsg('');drawSlots();
   G.presence({cards:[],deb:null,story:null,rm:0,rd:round});
+  beginMatch();
   flow();
 }
 let epoch=0;
@@ -824,6 +829,81 @@ async function tryJoin(id,x){
 }
 $('cancel').onclick=()=>cancelWait(waitBack);
 
+// ===== Защита от выхода: вышедший получает поражение сразу, оставшийся — победу =====
+// Вышедший: если закрыл вкладку или пропала связь, сервер Firebase сам записывает поражение (onDisconnect).
+// Оставшийся: узнаёт о выходе по MQTT (пустой презенс) или по статусу соперника в Firebase.
+let matchLive=false,lossArmed=false,oppFbRef=null,oppFbCb=null,oppFbOnline=true;
+function armLoss(){
+  if(!me||!fdb)return;
+  const ref=fdb.ref('users/'+me.uid+'/losses');
+  ref.once('value').then(s=>{
+    if(!matchLive)return;
+    ref.onDisconnect().set((s.val()||0)+1);
+    lossArmed=true;
+  }).catch(()=>{});
+}
+function disarmLoss(){
+  if(lossArmed&&me&&fdb){try{fdb.ref('users/'+me.uid+'/losses').onDisconnect().cancel()}catch(e){}}
+  lossArmed=false;
+}
+function watchOpp(){
+  unwatchOpp();
+  if(!fdb||!opp||!opp.uid)return;
+  oppFbRef=fdb.ref('status/'+opp.uid);
+  oppFbOnline=true;
+  oppFbCb=s=>{
+    oppFbOnline=s.val()!==false;
+    if(!oppFbOnline)setTimeout(()=>{if(matchLive&&!finished&&!oppFbOnline)forfeitWin()},4000);
+  };
+  oppFbRef.on('value',oppFbCb);
+}
+function unwatchOpp(){
+  if(oppFbRef&&oppFbCb){try{oppFbRef.off('value',oppFbCb)}catch(e){}}
+  oppFbRef=null;oppFbCb=null;
+}
+function beginMatch(){
+  matchLive=true;
+  if(me)myState.uid=me.uid;
+  armLoss();
+  watchOpp();
+  $('quit').classList.remove('hide');
+}
+function endMatch(){
+  matchLive=false;
+  disarmLoss();
+  unwatchOpp();
+  $('quit').classList.add('hide');
+}
+function forfeitWin(){
+  if(!matchLive||finished)return;
+  epoch++;
+  finished=true;meWin=true;gone=true;
+  endMatch();
+  recordResult();
+  setMsg('');
+  pop($('res'));
+  $('winTxt').className='win';
+  $('winTxt').textContent='🏆 Победа! Соперник вышел из боя';
+  $('pwTxt').textContent='Соперник покинул бой — победа засчитана тебе';
+  $('story').textContent='';
+  $('spin').classList.add('hide');
+  rematchUI();
+}
+function quitMatch(){
+  if(!confirm('Выйти из боя? Это засчитает поражение.'))return;
+  const lose=matchLive&&!finished&&!gone;
+  endMatch();
+  if(lose){finished=true;meWin=false;recordResult()}
+  leaveGame();
+}
+$('quit').onclick=quitMatch;
+
+// Счётчик комбо за все игры (увеличивается сразу, как только комбо сработало)
+function countCombo(n){
+  if(me&&fdb)fdb.ref('users/'+me.uid+'/combos').transaction(v=>(v||0)+(n||1));
+}
+
+
 // ===== Аккаунты (Firebase Auth + Realtime Database) =====
 // Вставь свои данные: Firebase -> Project settings -> Your apps -> Web app
 const FIREBASE_CONFIG={
@@ -857,7 +937,7 @@ $('aGo').onclick=async()=>{
       regBusy=true;
       const c=await auth.createUserWithEmailAndPassword(emailOf(nick),pass);
       try{await fdb.ref('nicks/'+nick.toLowerCase()).set({u:c.user.uid,e:emailOf(nick)})}catch(e){await c.user.delete();throw {code:'auth/email-already-in-use'}}
-      await fdb.ref('users/'+c.user.uid).set({nick,bio:$('aBio').value.trim().slice(0,120),wins:0,losses:0});
+      await fdb.ref('users/'+c.user.uid).set({nick,bio:$('aBio').value.trim().slice(0,120),wins:0,losses:0,combos:0});
       regBusy=false;onUser(c.user);
     }else{
       let em=emailOf(nick);
@@ -876,7 +956,7 @@ function renderHome(){
 function renderProfile(){
   if(!me)return;
   const w=me.wins||0,l=me.losses||0;
-  $('pfNick').textContent=me.nick;$('pfW').textContent=w;$('pfL').textContent=l;$('pfR').textContent=(w+l)?Math.round(100*w/(w+l))+'%':'–';
+  $('pfNick').textContent=me.nick;$('pfC').textContent=me.combos||0;$('pfW').textContent=w;$('pfL').textContent=l;$('pfR').textContent=(w+l)?Math.round(100*w/(w+l))+'%':'–';
 }
 function onUser(u){
   meOff.forEach(f=>f());meOff=[];
@@ -884,7 +964,7 @@ function onUser(u){
   const cb=ref.on('value',s=>{
     const v=s.val();
     if(!v){if(!regBusy){err('Профиль не найден, войди заново');auth.signOut()}return}
-    me={uid:u.uid,...v};ME.name=v.nick;myState.name=v.nick;renderHome();renderProfile();
+    me={uid:u.uid,...v};ME.name=v.nick;myState.name=v.nick;myState.uid=u.uid;renderHome();renderProfile();
     if(scr===''||scr==='auth')show('home');
     hideLoader();
   });
@@ -912,7 +992,7 @@ function card(u,t1,f1,t2,f2,online){
   const d=document.createElement('div');d.className='srv';d.style.cursor='default';
   const l=document.createElement('div'),b=document.createElement('b'),sm=document.createElement('small');
   b.textContent=(online===undefined?'':(online?'🟢 ':'⚪ '))+u.nick;
-  sm.textContent=(u.wins!==undefined?'🏆'+(u.wins||0)+' 💔'+(u.losses||0):'')+(u.bio?(u.wins!==undefined?' · ':'')+u.bio:'');
+  sm.textContent=(u.wins!==undefined?'🏆'+(u.wins||0)+' 💔'+(u.losses||0)+' ✨'+(u.combos||0):'')+(u.bio?(u.wins!==undefined?' · ':'')+u.bio:'');
   l.append(b,sm);d.append(l);
   const bx=document.createElement('div');bx.style.cssText='display:flex;gap:6px';
   [[t1,f1],[t2,f2]].forEach(([t,f])=>{if(!t)return;const x=document.createElement('button');x.className='dbtn';x.textContent=t;if(f)x.onclick=()=>f(x);else x.disabled=true;bx.append(x)});
@@ -1033,6 +1113,7 @@ function cancelWait(back){
   show(back||'menu');
 }
 function leaveGame(){
+  endMatch();
   epoch++;
   try{if(cli&&sid)pub('g/'+sid+'/p/'+ME.id,'',true)}catch(e){}
   const c=cli;setTimeout(()=>{try{c&&c.end(true)}catch(e){}},300);
@@ -1041,7 +1122,7 @@ function leaveGame(){
   myCards=[];shown={me:[],opp:[]};animating=false;PRE=false;FZ=[];FN=-1;HL=[];coinDone=false;battleStarted=false;gone=false;
   fieldReady=false;finished=false;pendingStory='';story='';meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
   stage='init';lock=true;round=0;baseRoom='';oppLeft=false;opp=null;joining=false;
-  myState={id:ME.id,name:ME.name,cards:[]};
+  myState={id:ME.id,name:ME.name,cards:[],uid:me?me.uid:''};
   delete $('game').dataset.s;
   ['water','wheelWrap','cMe','cOpp','dbPick','dbWait','coinBox'].forEach(stgOff);
   $('cOpp').classList.remove('pick');$('coinBox').firstChild.classList.remove('go');
