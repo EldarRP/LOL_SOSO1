@@ -393,7 +393,7 @@ $('spin').onclick=()=>{
 // ===== Бой =====
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 let fieldReady=false,finished=false,pendingStory='',meWin=false,sa=0,sb=0;
-async function battle(){
+async function battle0(ep){
   battleStarted=true;
   $('spin').classList.add('hide');$('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
   {const r=calc();sa=r.sa;sb=r.sb}
@@ -401,12 +401,12 @@ async function battle(){
   if(ME.id===ids()[0])askStory();
   else setTimeout(()=>finish('Волны улеглись: победила команда, которая оказалась сильнее.'),30000);
   setMsg('Все карты выбраны');
-  await wait(2000);
+  await wk(ep,2000);
   stage='battle';stgOff('wheelWrap');
-  await wait(1100);
+  await wk(ep,1100);
   stgOn('water');
   setMsg('Идёт бой — ИИ размышляет<span class="dots"></span>');
-  await wait(2500);
+  await wk(ep,2500);
   fieldReady=true;
   if(pendingStory)finish(pendingStory);
 }
@@ -486,7 +486,7 @@ function rematchUI(){
   else{b.textContent='Играть снова';setMsg('')}
 }
 $('again').onclick=()=>{if(gone||oppLeft||myState.rm===1)return;G.presence({rm:1});rematchUI();update()};
-$('toMenu').onclick=()=>location.reload();
+$('toMenu').onclick=()=>leaveGame();
 function newRound(){
   round++;if(!baseRoom)baseRoom=roomName;roomName=baseRoom+'#'+round;
   myCards=[];shown={me:[],opp:[]};animating=false;coinDone=false;battleStarted=false;gone=false;
@@ -504,30 +504,36 @@ function newRound(){
   G.presence({cards:[],deb:null,story:null,rm:0,rd:round});
   flow();
 }
-async function flow(){
+let epoch=0;
+async function wk(ep,ms){await wait(ms);if(ep!==epoch)throw 'x'}
+const guard=e=>{if(e!=='x')console.error(e)};
+function flow(){const ep=epoch;flow0(ep).catch(guard)}
+function toSpin(){const ep=epoch;toSpin0(ep).catch(guard)}
+function battle(){const ep=epoch;battle0(ep).catch(guard)}
+async function flow0(ep){
   const f=firstId()===ME.id;
   stage='coin';lock=true;
   $('coinBox').firstChild.classList.add('go');stgOn('coinBox');
   setMsg('Подбрасываем монетку…');
-  await wait(1700);
+  await wk(ep,1700);
   setMsg(f?'Монетка решила: ты ходишь первым! 🍀':'Монетка решила: первым ходит соперник');
-  await wait(1100);
+  await wk(ep,1100);
   stgOff('coinBox');setMsg('');
-  await wait(650);
+  await wk(ep,650);
   stgOn('cMe');stgOn('cOpp');
-  await wait(700);
+  await wk(ep,700);
   coinDone=true;stage='deb';lock=false;update();
 }
-async function toSpin(){
+async function toSpin0(ep){
   if(stage!=='deb')return;
   stage='trans';lock=true;
   stgOff('dbPick');stgOff('dbWait');setMsg('');
   $('cOpp').classList.remove('pick');
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
-  await wait(1000);
+  await wk(ep,1000);
   drawSlots();
   stgOn('wheelWrap');
-  await wait(1000);
+  await wk(ep,1000);
   stage='spin';lock=false;update();
 }
 
@@ -608,6 +614,7 @@ $('goCreate').onclick=()=>{show('create');$('srvName').value=ME.name+' — иг�
 
 // --- создать сервер ---
 $('doCreate').onclick=async()=>{
+  waitBack='menu';
   const name=($('srvName').value.trim()||ME.name+' — игра').slice(0,30),pass=$('srvPass').value;
   sid=Math.random().toString(36).slice(2,10);roomName=sid;
   show('waitBox');$('waitTxt').innerHTML='Подключаемся<span class="dots"></span>';
@@ -662,14 +669,14 @@ function renderList(){
 }
 async function tryJoin(id,x){
   if(x.ph){const p=prompt('Пароль сервера «'+x.name+'»');if(p===null)return;if(hs(p)!==x.ph){err('Неверный пароль');return}}
-  stopBrowse();sid=id;roomName=id;oppId=x.hostId;
+  stopBrowse();sid=id;roomName=id;oppId=x.hostId;waitBack=x.duel?'home':'browse';
   show('waitBox');$('waitTxt').innerHTML='Заходим на сервер<span class="dots"></span>';
   try{cli=await connect(myWill())}catch(e){show(x.duel?'home':'browse');err('Нет связи: '+e.message);return}
   let accepted=false;
-  const fail=setTimeout(()=>{if(!accepted){err('Сервер не ответил или уже занят');setTimeout(()=>location.reload(),1800)}},8000);
+  joinTimer=setTimeout(()=>{if(!accepted){err('Сервер не ответил или уже занят');setTimeout(()=>cancelWait(waitBack),1800)}},8000);
   cli.on('message',(t,m)=>{
     if(t===P+'g/'+sid+'/acc'){
-      try{const j=JSON.parse(m.toString());if(j.guest===ME.id){accepted=true;clearTimeout(fail);G.presence({})}}catch(e){}
+      try{const j=JSON.parse(m.toString());if(j.guest===ME.id){accepted=true;clearTimeout(joinTimer);G.presence({})}}catch(e){}
       return;
     }
     onGameMsg(t,m);
@@ -677,7 +684,7 @@ async function tryJoin(id,x){
   cli.subscribe([P+'g/'+sid+'/acc',P+'g/'+sid+'/p/+']);
   pub('g/'+sid+'/join',{id:ME.id,name:ME.name});
 }
-$('cancel').onclick=()=>{try{if(curInvite)curInvite.remove()}catch(e){}try{if(sid&&cli)pub('srv/'+sid,'',true)}catch(e){}setTimeout(()=>location.reload(),300)};
+$('cancel').onclick=()=>cancelWait(waitBack);
 
 // ===== Аккаунты (Firebase Auth + Realtime Database) =====
 // Вставь свои данные: Firebase -> Project settings -> Your apps -> Web app
@@ -806,6 +813,7 @@ function acceptInvite(v){
   tryJoin(v.sid,{hostId:v.hostId,ph:'',name:'дуэль',duel:true});
 }
 async function duelHost(friendUid,friendNick){
+  waitBack='friends';
   sid=Math.random().toString(36).slice(2,10);roomName=sid;
   show('waitBox');$('waitTxt').innerHTML='Приглашаем '+friendNick.replace(/[<>&]/g,'')+'<br>Ждём ответа<span class="dots"></span>';
   try{cli=await connect(myWill())}catch(e){show('friends');err('Нет связи: '+e.message);return}
@@ -825,9 +833,9 @@ async function duelHost(friendUid,friendNick){
     curInvite=fdb.ref('invites/'+friendUid+'/'+me.uid);
     await curInvite.set({nick:me.nick,sid,hostId:ME.id,t:Date.now()});
     curInvite.onDisconnect().remove();
-    curInvite.on('value',s=>{if(!s.exists()&&!guest&&!declined){declined=true;err('Друг отклонил приглашение');setTimeout(()=>location.reload(),1600)}},e=>err('Не вижу ответ друга: обнови правила Firebase (раздел invites)'));
+    curInvite.on('value',s=>{if(!s.exists()&&!guest&&!declined){declined=true;err('Друг отклонил приглашение');setTimeout(()=>cancelWait('friends'),1600)}},e=>err('Не вижу ответ друга: обнови правила Firebase (раздел invites)'));
   }catch(e){err('Не удалось отправить приглашение: '+(e.message||e));return}
-  setTimeout(()=>{if(!guest&&!declined){declined=true;try{curInvite.remove()}catch(e){}err('Друг не ответил');setTimeout(()=>location.reload(),1600)}},90000);
+  duelTimer=setTimeout(()=>{if(!guest&&!declined){declined=true;err('Друг не ответил');setTimeout(()=>cancelWait('friends'),1400)}},90000);
 }
 $('fGo').onclick=async()=>{
   const n=$('fSearch').value.trim(),box=$('fRes');box.textContent='';
@@ -872,6 +880,39 @@ $('pfRename').onclick=async()=>{
   catch(e){m.textContent=e.msg||('Ошибка: '+(e.message||e))}
   $('pfRename').disabled=false;
 };
+let waitBack='menu',joinTimer=null,duelTimer=null;
+function cancelWait(back){
+  clearTimeout(joinTimer);clearTimeout(duelTimer);clearInterval(hb);
+  try{if(curInvite){curInvite.off();curInvite.remove()}}catch(e){}
+  curInvite=null;
+  const c=cli;
+  try{if(c&&sid)pub('srv/'+sid,'',true)}catch(e){}
+  setTimeout(()=>{try{c&&c.end(true)}catch(e){}},300);
+  cli=null;sid='';oppId='';joining=false;err('');
+  show(back||'menu');
+}
+function leaveGame(){
+  epoch++;
+  try{if(cli&&sid)pub('g/'+sid+'/p/'+ME.id,'',true)}catch(e){}
+  const c=cli;setTimeout(()=>{try{c&&c.end(true)}catch(e){}},300);
+  cli=null;clearInterval(hb);sid='';oppId='';roomName='';
+  try{if(curInvite){curInvite.off();curInvite.remove()}}catch(e){}curInvite=null;
+  myCards=[];shown={me:[],opp:[]};animating=false;coinDone=false;battleStarted=false;gone=false;
+  fieldReady=false;finished=false;pendingStory='';story='';meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
+  stage='init';lock=true;round=0;baseRoom='';oppLeft=false;opp=null;joining=false;
+  myState={id:ME.id,name:ME.name,cards:[]};
+  delete $('game').dataset.s;
+  ['water','wheelWrap','cMe','cOpp','dbPick','dbWait','coinBox'].forEach(stgOff);
+  $('cOpp').classList.remove('pick');$('coinBox').firstChild.classList.remove('go');
+  ['res','again','toMenu','spin'].forEach(i=>$(i).classList.add('hide'));
+  $('story').textContent='';$('winTxt').textContent='';$('pwTxt').textContent='';$('wlab').textContent='';
+  $('dbOk').disabled=true;$('dbGrid').querySelectorAll('.on').forEach(x=>x.classList.remove('on'));
+  $('dbHint').textContent='Выбери ухудшение';
+  $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');setMsg('');
+  const g=$('game');g.classList.add('hide');g.classList.remove('fadein');
+  const lb=$('lobby');lb.classList.remove('hide','busy');lb.style.transition='opacity .5s ease';lb.style.opacity='1';
+  show('home');updateNotif();
+}
 function recordResult(){
   if(me&&fdb)fdb.ref('users/'+me.uid+'/'+(meWin?'wins':'losses')).transaction(v=>(v||0)+1);
 }
