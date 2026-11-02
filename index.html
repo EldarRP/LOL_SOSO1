@@ -109,6 +109,13 @@ textarea.in{resize:none;font-family:inherit}
 #lobby.busy{pointer-events:none}
 #mail{transition:opacity .4s ease,transform .4s ease}
 #mail.off{opacity:0;pointer-events:none;transform:scale(.6)}
+#book{position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);right:12px;z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);font-size:22px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
+#book.off{opacity:0;pointer-events:none;transform:scale(.6)}
+#bookP{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto}
+.cb{text-align:left;margin-top:10px;padding:10px;border:1px solid var(--ln);border-radius:6px;background:var(--bg)}
+.cb h3{margin:0 0 6px;font-size:15px;color:var(--ac)}
+.cb p{margin:4px 0;font-size:14px;line-height:1.4}
+.cb .ch{font-size:20px;letter-spacing:2px}
 .srv{animation:scrIn .3s ease both}
 .btn{transition:transform .12s ease,filter .25s ease,opacity .3s ease}.btn:active:not(:disabled){transform:scale(.97)}
 .dbtn:active{transform:scale(.95)}
@@ -126,7 +133,21 @@ textarea.in{resize:none;font-family:inherit}
 </style></head><body>
 <div id="loader"><div class="lg">⚔️</div><div class="lt">Пони-Арена</div><div class="bar"><i></i></div><div id="lmsg">Загрузка…</div></div>
 <button id="mail" class="off" aria-label="Уведомления">✉️<span id="mailN"></span></button>
+<button id="book" class="off" aria-label="Книга комбо">📖</button>
 <div id="notif" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
+<div id="bookP" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>📖 Книга комбо</b><button class="dbtn" id="bClose" style="padding:6px 12px">✕</button></div>
+  <div class="cb">
+    <h3>Комбо 1 — Злодейский союз</h3>
+    <div class="ch">🪲 Кризалис · 👹 Тирек · 🪽 Кози Глоу</div>
+    <p>Порядок не важен. Все три злодея в одной команде дают бонус: <b>+4 к атаке, +2 к тактике, +3 к защите</b>.</p>
+  </div>
+  <div class="cb">
+    <h3>Комбо 2 — Сила дружбы</h3>
+    <div class="ch">📚 Искорка + 2 или больше из: 🎈 Пинки Пай · 💎 Рарити · 🤠 Эпплджек · 🦋 Флаттершай · 🌈 Рэйнбоу Дэш</div>
+    <p>Выбранные персонажи объединяются с анимацией в «Силу дружбы»: <b>⚔ 15 · 🧠 15 · 🛡 15</b>.</p>
+    <p>После объединения игрок выбирает оставшиеся слоты. Объединившиеся персонажи оставляют свои слоты пустыми.</p>
+  </div>
+</div></div>
 <h1>⚔️ Пони-Арена</h1><div class="sub">Дуэль 1 на 1 · три карты · бой в воде</div>
 
 <div id="lobby" class="panel">
@@ -246,7 +267,7 @@ const DB=[
  {n:'Ослеплён',e:'🙈',on:{a:-3},txt:'Враг: −3 атака'},
  {n:'Простуда',e:'🤧',on:{a:-2,d:-2},txt:'Враг: −2 атака и −2 защита'},
  {n:'Нокаут',e:'💥',block:1,self:{a:-2,t:-2,d:-2},txt:'Враг: боец выбывает · Ты: все бойцы −2 ко всему'},
- {n:'Эпидемия',e:'☣️',all:1,on:{a:-2,d:-2},self:{t:-2},txt:'Враг: все бойцы −2 атака и защита · Ты: все бойцы −2 тактика'},
+ {n:'Эпидемия',e:'☣️',all:1,on:{a:-1,d:-1},self:{t:-1},txt:'Враг: все бойцы −1 атака и защита · Ты: все бойцы −1 тактика'},
  {n:'Берсерк',e:'😡',on:{a:-5,d:-5},self:{d:-2},txt:'Враг: −5 атака и −5 защита · Ты: все бойцы −2 защита'}];
 const rar=i=>{const x=CH[i],v=x.a+x.t+x.d;return v>=24?4:v>=17?3:v>=12?2:1};
 const $=id=>document.getElementById(id);
@@ -450,7 +471,7 @@ function onOpp(p){
 }
 async function startGame(){
   if(coinDone||$('game').dataset.s)return;$('game').dataset.s=1;
-  $('mail').classList.add('off');$('notif').classList.add('hide');
+  $('mail').classList.add('off');$('notif').classList.add('hide');$('book').classList.add('off');$('bookP').classList.add('hide');
   setMsg('');
   const lb=$('lobby');lb.style.transition='opacity .6s ease';lb.style.opacity='0';
   await wait(650);
@@ -788,7 +809,7 @@ function renderFr(){
 }
 const NF={req:{},inv:{}};let curInvite=null;
 function renderReq(v){NF.req=v;updateNotif()}
-function updMail(){$('mail').classList.toggle('off',!(me&&$('game').classList.contains('hide')))}
+function updMail(){$('mail').classList.toggle('off',!(me&&$('game').classList.contains('hide')));$('book').classList.toggle('off',!$('game').classList.contains('hide'))}
 function updateNotif(){
   const now=Date.now(),rq=Object.entries(NF.req),iv=Object.entries(NF.inv).filter(([k,v])=>v&&now-v.t<120000),n=rq.length+iv.length;
   $('mailN').textContent=n;$('mailN').style.display=n?'block':'none';
@@ -807,6 +828,9 @@ function togNotif(open){
 }
 $('mail').onclick=()=>{updateNotif();togNotif($('notif').classList.contains('hide'))};
 $('nClose').onclick=()=>togNotif(false);
+const togBook=open=>{const n=$('bookP');if(open){n.classList.remove('hide','scrOut','scrIn');void n.offsetWidth;n.classList.add('scrIn')}else n.classList.add('hide')};
+$('book').onclick=()=>togBook(true);$('bClose').onclick=()=>togBook(false);
+$('bookP').onclick=e=>{if(e.target===$('bookP'))togBook(false)};
 $('notif').onclick=e=>{if(e.target===$('notif'))togNotif(false)};
 function acceptInvite(v){
   togNotif(false);
