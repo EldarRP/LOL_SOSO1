@@ -966,7 +966,7 @@ function renderHome(){
   $('gName').classList.toggle('hide',!!me);$('acc').classList.toggle('hide',!me);$('accBtns').classList.toggle('hide',!me);
   $('toAuth').classList.toggle('hide',!!me||!auth);
   updMail();
-  if(me){$('hiNick').textContent=me.nick;$('hiStat').textContent='🏆 '+(me.wins||0)+' · 💔 '+(me.losses||0)+' · ✨ '+(me.combos||0)+' · ✨ '+(me.combos||0)+' комбо'}
+  if(me){$('hiNick').textContent=me.nick;$('hiStat').textContent='🏆 '+(me.wins||0)+' · 💔 '+(me.losses||0)+' · ✨ '+(me.combos||0)+' комбо'}
 }
 function renderProfile(){
   if(!me)return;
