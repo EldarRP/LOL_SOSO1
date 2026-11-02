@@ -131,6 +131,8 @@ textarea.in{resize:none;font-family:inherit}
   </div>
   <div id="profile" class="hide">
     <div id="pfNick" style="font-weight:800;font-size:20px"></div>
+    <div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="pfNew" maxlength="12" placeholder="Новый ник" autocapitalize="none" style="margin-top:0"><button class="btn" id="pfRename" style="width:auto;margin-top:0;padding:0 14px;font-size:13px">Сменить</button></div>
+    <div id="pfMsg" class="pw" style="min-height:18px;margin-top:4px"></div>
     <div class="stat3"><div><b id="pfW" style="color:var(--ok)">0</b><div class="pw">Победы</div></div><div><b id="pfL" style="color:#ff6b6b">0</b><div class="pw">Поражения</div></div><div><b id="pfR">–</b><div class="pw">Винрейт</div></div></div>
     <textarea class="in" id="pfBio" maxlength="120" rows="3" placeholder="О себе (по желанию)"></textarea>
     <button class="btn" id="pfSave">Сохранить описание</button>
@@ -677,10 +679,14 @@ $('aGo').onclick=async()=>{
     if(tabUp){
       regBusy=true;
       const c=await auth.createUserWithEmailAndPassword(emailOf(nick),pass);
-      try{await fdb.ref('nicks/'+nick.toLowerCase()).set(c.user.uid)}catch(e){await c.user.delete();throw {code:'auth/email-already-in-use'}}
+      try{await fdb.ref('nicks/'+nick.toLowerCase()).set({u:c.user.uid,e:emailOf(nick)})}catch(e){await c.user.delete();throw {code:'auth/email-already-in-use'}}
       await fdb.ref('users/'+c.user.uid).set({nick,bio:$('aBio').value.trim().slice(0,120),wins:0,losses:0});
       regBusy=false;onUser(c.user);
-    }else await auth.signInWithEmailAndPassword(emailOf(nick),pass);
+    }else{
+      let em=emailOf(nick);
+      try{const nv=(await fdb.ref('nicks/'+nick.toLowerCase()).once('value')).val();if(nv&&nv.e)em=nv.e}catch(e){}
+      await auth.signInWithEmailAndPassword(em,pass);
+    }
   }catch(e){regBusy=false;err(eMsg(e))}
   $('aGo').disabled=false;
 };
@@ -738,7 +744,7 @@ function renderFr(){
   const el=$('fList');el.innerHTML='';
   const arr=Object.entries(FR).filter(([k,x])=>x.u).sort((a,b)=>(b[1].on?1:0)-(a[1].on?1:0));
   if(!arr.length){el.innerHTML='<div class="pw" style="margin:8px 0">Пока никого. Найди друга по нику!</div>';return}
-  arr.forEach(([k,x])=>el.append(card(x.u,x.on?'⚔ Вызвать':'Не в сети',x.on?()=>duelHost(k,x.u.nick):null,null,null,!!x.on)));
+  arr.forEach(([k,x])=>el.append(card(x.u,x.on?'⚔ Вызвать':'Не в сети',x.on?()=>duelHost(k,x.u.nick):null,'🗑',()=>{if(confirm('Удалить '+x.u.nick+' из друзей?'))fdb.ref().update({['friends/'+me.uid+'/'+k]:null,['friends/'+k+'/'+me.uid]:null}).catch(e=>err('Не удалось удалить: '+(e.message||e)))},!!x.on)));
 }
 const NF={req:{},inv:{}};let curInvite=null;
 function renderReq(v){NF.req=v;updateNotif()}
@@ -789,7 +795,7 @@ $('fGo').onclick=async()=>{
   const n=$('fSearch').value.trim(),box=$('fRes');box.textContent='';
   if(!nickOk(n)){box.textContent='Введи ник целиком (3–12 символов)';return}
   try{
-    const uid=(await fdb.ref('nicks/'+n.toLowerCase()).once('value')).val();
+    const nv=(await fdb.ref('nicks/'+n.toLowerCase()).once('value')).val(),uid=typeof nv==='string'?nv:(nv&&nv.u);
     if(!uid){box.textContent='Игрок не найден';return}
     if(uid===me.uid){box.textContent='Это ты 🙂';return}
     const u=(await fdb.ref('users/'+uid).once('value')).val();
@@ -809,6 +815,24 @@ $('logout').onclick=async()=>{
   try{await fdb.ref('status/'+me.uid).set(false)}catch(e){}
   meOff.forEach(f=>f());meOff=[];me=null;ME.name='Пони-'+Math.floor(100+Math.random()*900);
   await auth.signOut();
+};
+async function renameNick(nn){
+  const lo=nn.toLowerCase(),old=me.nick.toLowerCase();
+  if(lo!==old){
+    try{await fdb.ref('nicks/'+lo).set({u:me.uid,e:auth.currentUser.email})}
+    catch(e){throw {msg:'Ник занят (или не обновлены правила Firebase)'}}
+  }
+  await fdb.ref('users/'+me.uid+'/nick').set(nn);
+  if(lo!==old){try{await fdb.ref('nicks/'+old).remove()}catch(e){}}
+}
+$('pfRename').onclick=async()=>{
+  const nn=$('pfNew').value.trim(),m=$('pfMsg');
+  if(!nickOk(nn)){m.textContent='Ник: 3–12 символов, буквы, цифры или _';return}
+  if(nn===me.nick){m.textContent='Это уже твой ник';return}
+  $('pfRename').disabled=true;m.textContent='';
+  try{await renameNick(nn);m.textContent='Ник изменён ✓';$('pfNew').value=''}
+  catch(e){m.textContent=e.msg||('Ошибка: '+(e.message||e))}
+  $('pfRename').disabled=false;
 };
 function recordResult(){
   if(me&&fdb)fdb.ref('users/'+me.uid+'/'+(meWin?'wins':'losses')).transaction(v=>(v||0)+1);
