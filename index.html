@@ -899,6 +899,21 @@ function quitMatch(){
 $('quit').onclick=quitMatch;
 
 // Счётчик комбо за все игры (увеличивается сразу, как только комбо сработало)
+// Разовый бонус +3 комбо игроку floppie (комбо, сделанные до появления счётчика).
+// Флаг bonusApplied пишется в ту же транзакцию, что и бонус, поэтому начисление происходит ровно один раз.
+let floppieChecked=false;
+function floppieBonus(uid,v){
+  if(floppieChecked||!v||String(v.nick||'').toLowerCase()!=='floppie'||v.bonusApplied||!fdb)return;
+  floppieChecked=true;
+  let applied=false;
+  fdb.ref('users/'+uid).transaction(d=>{
+    applied=!!d&&!d.bonusApplied;
+    if(!applied)return d;
+    return {...d,combos:(d.combos||0)+3,bonusApplied:true};
+  },(e,committed)=>{
+    if(!e&&committed&&applied)err('Бонус начислен: +3 комбо ✨');
+  });
+}
 function countCombo(n){
   if(me&&fdb)fdb.ref('users/'+me.uid+'/combos').transaction(v=>(v||0)+(n||1));
 }
@@ -951,7 +966,7 @@ function renderHome(){
   $('gName').classList.toggle('hide',!!me);$('acc').classList.toggle('hide',!me);$('accBtns').classList.toggle('hide',!me);
   $('toAuth').classList.toggle('hide',!!me||!auth);
   updMail();
-  if(me){$('hiNick').textContent=me.nick;$('hiStat').textContent='🏆 '+(me.wins||0)+' · 💔 '+(me.losses||0)}
+  if(me){$('hiNick').textContent=me.nick;$('hiStat').textContent='🏆 '+(me.wins||0)+' · 💔 '+(me.losses||0)+' · ✨ '+(me.combos||0)+' · ✨ '+(me.combos||0)+' комбо'}
 }
 function renderProfile(){
   if(!me)return;
@@ -964,7 +979,7 @@ function onUser(u){
   const cb=ref.on('value',s=>{
     const v=s.val();
     if(!v){if(!regBusy){err('Профиль не найден, войди заново');auth.signOut()}return}
-    me={uid:u.uid,...v};ME.name=v.nick;myState.name=v.nick;myState.uid=u.uid;renderHome();renderProfile();
+    me={uid:u.uid,...v};ME.name=v.nick;myState.name=v.nick;myState.uid=u.uid;floppieBonus(u.uid,v);renderHome();renderProfile();
     if(scr===''||scr==='auth')show('home');
     hideLoader();
   });
