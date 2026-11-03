@@ -16,7 +16,11 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .hide{display:none!important}
 #quit{display:none!important} /* кнопка скрыта; логика выхода/поражения в коде сохранена */
 .bar{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:8px;gap:8px}
-.pl{flex:1;padding:6px 8px;border-radius:4px;background:var(--card);border:1px solid var(--ln);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pl{flex:1;min-width:0;padding:5px 8px;border-radius:4px;background:var(--card);border:1px solid var(--ln);overflow:hidden;display:flex;align-items:center;gap:8px}
+.pl .nm{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#pOpp{flex-direction:row-reverse}#pOpp .nm{text-align:right}
+.pl .av,.card-av{cursor:pointer}
+#uprof{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:80;padding:0 14px;overflow:auto}
 .pl.turn{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac) inset}
 .board{display:grid;grid-template-columns:80px minmax(0,1fr) 80px;gap:8px;align-items:start}
 .col{display:flex;flex-direction:column;gap:8px}
@@ -47,7 +51,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .dots:after{content:"";animation:d 1.2s steps(4) infinite}@keyframes d{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 .pw{font-size:12px;color:var(--mut);text-align:center;margin-top:6px}
 .wheelBox{position:relative;width:100%;aspect-ratio:1;padding-top:10px}
-.wheelBox canvas{width:100%;height:100%;border-radius:50%;box-shadow:0 0 0 3px var(--ac2),0 0 18px #0009;transition:transform 4s cubic-bezier(.12,.7,.1,1)}
+.wheelBox canvas{width:100%;height:100%;border-radius:50%;box-shadow:0 0 0 3px var(--ac2),0 0 18px #0009;will-change:transform}
 .pt{position:absolute;top:-2px;left:50%;margin-left:-9px;border:9px solid transparent;border-top:16px solid var(--ac);z-index:3}
 .wlab{font-size:12px;text-align:center;min-height:34px;margin-top:8px;font-weight:700}
 .fadeout{opacity:0;transition:opacity .9s}.fadein{animation:fi .9s}@keyframes fi{from{opacity:0}to{opacity:1}}
@@ -177,6 +181,16 @@ textarea.in{resize:none;font-family:inherit}
 <button id="book" class="off" aria-label="Книга комбо">📖</button>
 <div id="duelPick" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><b id="dpTitle">Вызвать друга</b><div style="margin:10px 0 4px;font-weight:700">Режим игры</div><div id="modeDp"></div><button class="btn" id="dpGo">⚔ Вызвать</button><button class="btn sec" id="dpCancel">Отмена</button></div></div>
 <div id="notif" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
+<div id="uprof" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px">
+  <div style="display:flex;justify-content:center"><div id="upAv"></div></div>
+  <div id="upNick" style="font-weight:800;font-size:20px;margin-top:8px"></div>
+  <div id="upOn" class="pw"></div>
+  <div class="stat3"><div><b id="upW" style="color:var(--ok)">0</b><div class="pw">Победы</div></div><div><b id="upL" style="color:#ff6b6b">0</b><div class="pw">Поражения</div></div><div><b id="upR">–</b><div class="pw">Винрейт</div></div><div><b id="upC" style="color:#ffe066">0</b><div class="pw">Комбо</div></div></div>
+  <div id="upBio" class="pw" style="min-height:18px;white-space:pre-wrap"></div>
+  <div id="upMsg" class="pw" style="min-height:18px"></div>
+  <button class="btn hide" id="upAdd">Добавить в друзья</button>
+  <button class="btn sec" id="upClose">Закрыть</button>
+</div></div>
 <div id="bookP" class="hide"><div class="panel bk">
   <div class="bkh"><b>📖 Книга комбо</b><button class="dbtn" id="bClose" style="padding:6px 12px">✕</button></div>
   <div class="cb">
@@ -448,7 +462,7 @@ const RC={1:'#4a5565',2:'#2a6fa8',3:'#7a45bd',4:'#b8860b'};
 let rot=0;
 const WH=[23,3,14,8,19,0,12,17,5,21,10,1,16,22,6,13,2,18,9,20,4,15,7,11]; // порядок секторов на колесе (перемешан)
 const IMG={};
-CH.forEach((x,i)=>{const im=new Image();let t=0;im.onload=()=>{IMG[i]=im;idleStrip()};im.onerror=()=>{if(!t++)im.src='img/'+x.id+'.png'};im.src=PHOTOS[x.id]||'img/'+x.id+'.jpg'});
+CH.forEach((x,i)=>{const im=new Image();let t=0;im.onload=()=>{IMG[i]=im;if(spinRun)pendingIdle=true;else idleStrip()};im.onerror=()=>{if(!t++)im.src='img/'+x.id+'.png'};im.src=PHOTOS[x.id]||'img/'+x.id+'.jpg'});
 function idleStrip(){
   const c=$('wheel'),x=c.getContext('2d'),N=CH.length,A=2*Math.PI/N,R=216,cx=220,cy=220;
   x.clearRect(0,0,440,440);
@@ -467,14 +481,35 @@ function idleStrip(){
   x.beginPath();x.arc(cx,cy,34,0,7);x.fillStyle='#0e1116';x.fill();x.strokeStyle='#f2a900';x.lineWidth=4;x.stroke();
   x.font='30px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('⚔️',cx,cy+2);
 }
+let spinRun=false,pendingIdle=false,spinRaf=0;
+// Анимация на requestAnimationFrame: если кадры «зависли» (слабый телефон, сеть, фон), рулетка НЕ перескакивает на результат,
+// а продолжает крутиться с того же места — за один кадр прибавляется не больше 50 мс.
 function spinTo(target){
   return new Promise(res=>{
     const A=360/CH.length,off=(Math.random()-.5)*A*.6;
     const need=(((-WH.indexOf(target)*A-off-rot)%360)+360)%360;
-    rot+=360*5+need;
+    const from=rot,to=rot+360*5+need,DUR=4200,cv=$('wheel');
+    rot=to;spinRun=true;
     $('wlab').textContent='';
-    $('wheel').style.transform=`rotate(${rot}deg)`;
-    setTimeout(res,4100);
+    cancelAnimationFrame(spinRaf);
+    let el=0,last=0,done=false;
+    const fin=()=>{
+      if(done)return;done=true;cancelAnimationFrame(spinRaf);
+      cv.style.transform='rotate('+to+'deg)';spinRun=false;
+      if(pendingIdle){pendingIdle=false;idleStrip()}
+      res();
+    };
+    const step=t=>{
+      if(done)return;
+      if(!last)last=t;
+      el+=Math.min(Math.max(t-last,0),50);last=t;
+      const p=Math.min(1,el/DUR),e=1-Math.pow(1-p,4);
+      cv.style.transform='rotate('+(from+(to-from)*e)+'deg)';
+      if(p>=1)fin();else spinRaf=requestAnimationFrame(step);
+    };
+    spinRaf=requestAnimationFrame(step);
+    setTimeout(()=>{if(!last)fin()},1500);   // если кадры вообще не идут — не зависаем
+    setTimeout(fin,30000);
   });
 }
 
@@ -507,7 +542,7 @@ function update(){
   if(finished||gone)rematchUI();
   if(gone)return;
   const oc=opp.cards||[];
-  $('pMe').textContent='Ты: '+ME.name;$('pOpp').textContent=opp.name||'Соперник';
+  renderBar();
   if(!coinDone||stage==='coin')return;
   if(stage==='deb'){
     const dt=debTurn();
@@ -631,7 +666,7 @@ function onOpp(p){
   if(opp&&opp.id&&(opp.rd||0)!==round)opp={id:opp.id,name:opp.name,uid:opp.uid,cards:[],rd:opp.rd||0,rm:0};
   if(opp&&opp.id)oppLeft=false;else if(prev)oppLeft=true;
   if(!opp||!opp.id){
-    if(prev&&matchLive&&!finished){forfeitWin();return}
+    if(prev&&matchLive&&!finished){forfeitWin(!!(prev.deb&&myDeb));return}
     if(prev&&!gone&&!battleStarted){gone=true;setMsg('Соперник вышел 😔');$('spin').classList.add('hide');rematchUI()}else if(finished)rematchUI();
     return;
   }
@@ -640,12 +675,12 @@ function onOpp(p){
 }
 async function startGame(){
   if(coinDone||$('game').dataset.s)return;$('game').dataset.s=1;
-  $('mail').classList.add('off');$('notif').classList.add('hide');$('book').classList.add('off');$('bookP').classList.add('hide');
+  $('mail').classList.add('off');$('notif').classList.add('hide');$('uprof').classList.add('hide');$('book').classList.add('off');$('bookP').classList.add('hide');
   setMsg('');
   const lb=$('lobby');lb.style.transition='opacity .6s ease';lb.style.opacity='0';
   await wait(650);
   lb.classList.add('hide');$('game').classList.remove('hide');$('game').classList.add('fadein');
-  $('pMe').textContent='Ты: '+ME.name;$('pOpp').textContent=opp.name||'Соперник';
+  renderBar();
   drawSlots();idleStrip();
   $('dbGrid').innerHTML=DB.map((d,i)=>`<button class="dbtn t${Math.floor(i/3)}" data-k="${i}"><span>${d.e}</span><b>${d.n}</b></button>`).join('');
   const chk=()=>{$('dbOk').disabled=!(debSel>=0&&(DB[debSel].all||slotSel>0))};
@@ -719,6 +754,7 @@ async function flow0(ep){
 async function toSpin0(ep){
   if(stage!=='deb')return;
   stage='trans';lock=true;
+  armLoss(); // оба выбрали ухудшения — с этого момента выход = поражение
   stgOff('dbPick');stgOff('dbWait');setMsg('');
   $('cOpp').classList.remove('pick');
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
@@ -885,7 +921,7 @@ $('cancel').onclick=()=>cancelWait(waitBack);
 // Оставшийся: узнаёт о выходе по MQTT (пустой презенс) или по статусу соперника в Firebase.
 let matchLive=false,lossArmed=false,oppFbRef=null,oppFbCb=null,oppFbOnline=true;
 function armLoss(){
-  if(!me||!fdb)return;
+  if(!me||!fdb||lossArmed)return;
   const ref=fdb.ref('users/'+me.uid+'/losses');
   ref.once('value').then(s=>{
     if(!matchLive)return;
@@ -904,7 +940,7 @@ function watchOpp(){
   oppFbOnline=true;
   oppFbCb=s=>{
     oppFbOnline=s.val()!==false;
-    if(!oppFbOnline)setTimeout(()=>{if(matchLive&&!finished&&!oppFbOnline)forfeitWin()},4000);
+    if(!oppFbOnline)setTimeout(()=>{if(matchLive&&!finished&&!oppFbOnline)forfeitWin(!!(opp&&opp.deb&&myDeb))},4000);
   };
   oppFbRef.on('value',oppFbCb);
 }
@@ -915,8 +951,7 @@ function unwatchOpp(){
 function beginMatch(){
   matchLive=true;
   if(me)myState.uid=me.uid;
-  armLoss();
-  watchOpp();
+  watchOpp(); // armLoss() включается позже — когда оба выбрали ухудшения (см. toSpin0)
   $('quit').classList.remove('hide');
 }
 function endMatch(){
@@ -925,24 +960,33 @@ function endMatch(){
   unwatchOpp();
   $('quit').classList.add('hide');
 }
-function forfeitWin(){
+// counted=true — ухудшения уже выбраны обоими: победа засчитывается. Иначе — результат не засчитывается никому.
+function forfeitWin(counted){
   if(!matchLive||finished)return;
   epoch++;
-  finished=true;meWin=true;gone=true;
+  finished=true;gone=true;
   endMatch();
-  recordResult();
   setMsg('');
   pop($('res'));
-  $('winTxt').className='win';
-  $('winTxt').textContent='🏆 Победа! Соперник вышел из боя';
-  $('pwTxt').textContent='Соперник покинул бой — победа засчитана тебе';
+  if(counted){
+    meWin=true;recordResult();
+    $('winTxt').className='win';
+    $('winTxt').textContent='🏆 Победа! Соперник вышел из боя';
+    $('pwTxt').textContent='Соперник покинул бой — победа засчитана тебе';
+  }else{
+    meWin=false;
+    $('winTxt').className='win';
+    $('winTxt').textContent='🚪 Соперник вышел из боя';
+    $('pwTxt').textContent='Ухудшения ещё не были выбраны — победа и поражение не засчитываются';
+  }
   $('story').textContent='';
   $('spin').classList.add('hide');
   rematchUI();
 }
 function quitMatch(){
-  if(!confirm('Выйти из боя? Это засчитает поражение.'))return;
-  const lose=matchLive&&!finished&&!gone;
+  const counted=!!(myDeb&&opp&&opp.deb);
+  if(!confirm(counted?'Выйти из боя? Это засчитает поражение.':'Выйти из боя? Ухудшения ещё не выбраны — результат не засчитается.'))return;
+  const lose=matchLive&&!finished&&!gone&&counted;
   endMatch();
   if(lose){finished=true;meWin=false;recordResult()}
   leaveGame();
@@ -1069,18 +1113,83 @@ function onUser(u){
   });
   meOff.push(()=>{fr.off('value',c4);frOff.forEach(f=>f());frOff=[]});
 }
-function card(u,t1,f1,t2,f2,online){
+function card(u,t1,f1,t2,f2,online,openUid){
   const d=document.createElement('div');d.className='srv';d.style.cursor='default';
   const l=document.createElement('div'),b=document.createElement('b'),sm=document.createElement('small');
   b.textContent=u.nick;
   sm.textContent=(u.wins!==undefined?'🏆'+(u.wins||0)+' 💔'+(u.losses||0)+' ✨'+(u.combos||0):'')+(u.bio?(u.wins!==undefined?' · ':'')+u.bio:'');
   l.append(b,sm);
-  if(online===undefined)d.append(l);
-  else{const lf=document.createElement('div');lf.style.cssText='display:flex;align-items:center;gap:10px;min-width:0';lf.append(avEl(u,44,online?'#3ddc84':'#8793a5'),l);d.append(lf)}
+  if(online===undefined&&!openUid)d.append(l);
+  else{const lf=document.createElement('div');lf.style.cssText='display:flex;align-items:center;gap:10px;min-width:0';const av=avEl(u,44,online===undefined?null:(online?'#3ddc84':'#8793a5'));lf.append(av,l);d.append(lf);if(openUid){lf.style.cursor='pointer';lf.onclick=()=>openProf(openUid,u)}}
   const bx=document.createElement('div');bx.style.cssText='display:flex;gap:6px';
   [[t1,f1],[t2,f2]].forEach(([t,f])=>{if(!t)return;const x=document.createElement('button');x.className='dbtn';x.textContent=t;if(f)x.onclick=()=>f(x);else x.disabled=true;bx.append(x)});
   d.append(bx);return d;
 }
+// ===== Профиль игрока (из боя, списка друзей, поиска, уведомлений) =====
+const UC={},SENT={};
+async function getUser(uid){
+  if(!fdb||!uid)return UC[uid]||null;
+  try{const v=(await fdb.ref('users/'+uid).once('value')).val();UC[uid]=v;return v}catch(e){return UC[uid]||null}
+}
+function setPl(id,u,name,uid){
+  const el=$(id),sig=name+'|'+(u&&u.avatar?u.avatar.length:0)+'|'+uid+'|'+(me?1:0);
+  if(el.dataset.sig===sig)return;el.dataset.sig=sig;
+  el.innerHTML='';
+  const a=avEl(u&&u.nick?u:{nick:name},34);
+  if(uid&&me){a.onclick=()=>openProf(uid,u);a.title='Профиль'}else a.style.cursor='default';
+  const s=document.createElement('span');s.className='nm';s.textContent=name;
+  el.append(a,s);
+}
+function renderBar(){
+  setPl('pMe',me,ME.name,me?me.uid:'');
+  const ou=opp&&opp.uid;
+  setPl('pOpp',ou?UC[ou]:null,(opp&&opp.name)||'Соперник',ou||'');
+  if(ou&&me&&!(ou in UC)){UC[ou]=null;getUser(ou).then(()=>renderBar())}
+}
+let upUid=null;
+function paintProf(u){
+  const a=$('upAv');a.innerHTML='';a.append(avEl(u,96,'var(--ln)'));
+  $('upNick').textContent=u.nick||'…';
+  const w=u.wins||0,l=u.losses||0;
+  $('upW').textContent=w;$('upL').textContent=l;$('upC').textContent=u.combos||0;$('upR').textContent=(w+l)?Math.round(100*w/(w+l))+'%':'–';
+  $('upBio').textContent=u.bio||'';
+}
+async function openProf(uid,pre){
+  if(!me||!fdb||!uid)return;
+  upUid=uid;
+  const isMe=uid===me.uid,b=$('upAdd');
+  paintProf(pre||UC[uid]||(isMe?me:{nick:'…'}));
+  $('upMsg').textContent='';$('upOn').textContent='';b.classList.add('hide');b.disabled=false;b.onclick=null;
+  const m=$('uprof');m.classList.remove('hide','scrIn');void m.offsetWidth;m.classList.add('scrIn');
+  const u=await getUser(uid);
+  if(upUid!==uid)return;
+  if(u)paintProf(u);
+  try{const on=(await fdb.ref('status/'+uid).once('value')).val();if(upUid===uid)$('upOn').textContent=on?'🟢 в сети':'⚫ не в сети'}catch(e){}
+  if(isMe||upUid!==uid)return;
+  let isF=!!FR[uid];
+  if(!isF){try{isF=(await fdb.ref('friends/'+me.uid+'/'+uid).once('value')).exists()}catch(e){}}
+  if(upUid!==uid)return;
+  b.classList.remove('hide');
+  if(isF){b.textContent='В друзьях ✓';b.disabled=true;return}
+  if(NF.req[uid]){
+    b.textContent='Принять заявку';
+    b.onclick=async()=>{
+      b.disabled=true;
+      try{await fdb.ref().update({['friends/'+me.uid+'/'+uid]:true,['friends/'+uid+'/'+me.uid]:true,['requests/'+me.uid+'/'+uid]:null});b.textContent='В друзьях ✓'}
+      catch(e){b.disabled=false;$('upMsg').textContent='Ошибка: '+(e.message||e)}
+    };return;
+  }
+  if(SENT[uid]){b.textContent='Заявка отправлена ✓';b.disabled=true;return}
+  b.textContent='👤 Добавить в друзья';
+  b.onclick=async()=>{
+    b.disabled=true;
+    try{await fdb.ref('requests/'+uid+'/'+me.uid).set({nick:me.nick,t:Date.now()});SENT[uid]=1;b.textContent='Заявка отправлена ✓'}
+    catch(e){b.disabled=false;$('upMsg').textContent='Не удалось: '+(e.message||e)}
+  };
+}
+const closeProf=()=>{upUid=null;$('uprof').classList.add('hide')};
+$('upClose').onclick=closeProf;
+$('uprof').onclick=e=>{if(e.target===$('uprof'))closeProf()};
 let dpTarget=null;
 function askDuel(uid,nick){
   dpTarget={uid,nick};$('dpTitle').textContent='Вызвать '+nick;
@@ -1093,7 +1202,7 @@ function renderFr(){
   const el=$('fList');el.innerHTML='';
   const arr=Object.entries(FR).filter(([k,x])=>x.u).sort((a,b)=>(b[1].on?1:0)-(a[1].on?1:0));
   if(!arr.length){el.innerHTML='<div class="pw" style="margin:8px 0">Пока никого. Найди друга по нику!</div>';return}
-  arr.forEach(([k,x])=>el.append(card(x.u,x.on?'⚔ Вызвать':null,x.on?()=>askDuel(k,x.u.nick):null,'🗑',()=>{if(confirm('Удалить '+x.u.nick+' из друзей?'))fdb.ref().update({['friends/'+me.uid+'/'+k]:null,['friends/'+k+'/'+me.uid]:null}).catch(e=>err('Не удалось удалить: '+(e.message||e)))},!!x.on)));
+  arr.forEach(([k,x])=>el.append(card(x.u,x.on?'⚔ Вызвать':null,x.on?()=>askDuel(k,x.u.nick):null,'🗑',()=>{if(confirm('Удалить '+x.u.nick+' из друзей?'))fdb.ref().update({['friends/'+me.uid+'/'+k]:null,['friends/'+k+'/'+me.uid]:null}).catch(e=>err('Не удалось удалить: '+(e.message||e)))},!!x.on,k)));
 }
 const NF={req:{},inv:{}};let curInvite=null;
 function renderReq(v){NF.req=v;updateNotif()}
@@ -1106,7 +1215,7 @@ function updateNotif(){
   const el=$('nList');el.innerHTML='';
   if(!n){el.innerHTML='<div class="pw" style="margin:14px 0">Уведомлений нет</div>';return}
   iv.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'⚔ зовёт на поединок 1 на 1 · '+modeLbl(v.mode)},'Принять',()=>acceptInvite(v),'✕',()=>fdb.ref('invites/'+me.uid+'/'+from).remove())));
-  rq.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'👤 хочет добавить в друзья'},'Принять',()=>fdb.ref().update({['friends/'+me.uid+'/'+from]:true,['friends/'+from+'/'+me.uid]:true,['requests/'+me.uid+'/'+from]:null}),'✕',()=>fdb.ref('requests/'+me.uid+'/'+from).remove())));
+  rq.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'👤 хочет добавить в друзья'},'Принять',()=>fdb.ref().update({['friends/'+me.uid+'/'+from]:true,['friends/'+from+'/'+me.uid]:true,['requests/'+me.uid+'/'+from]:null}),'✕',()=>fdb.ref('requests/'+me.uid+'/'+from).remove(),undefined,from)));
 }
 setInterval(()=>{if(me)updateNotif()},15000);
 function togNotif(open){
@@ -1160,7 +1269,7 @@ $('fGo').onclick=async()=>{
     const isF=(await fdb.ref('friends/'+me.uid+'/'+uid).once('value')).exists();
     box.append(card(u,isF?'В друзьях ✓':'Добавить',isF?null:async b=>{
       await fdb.ref('requests/'+uid+'/'+me.uid).set({nick:me.nick,t:Date.now()});b.textContent='Отправлено ✓';b.disabled=true;
-    }));
+    },null,null,undefined,uid));
   }catch(e){box.textContent='Ошибка: '+(e.message||e)}
 };
 $('goProf').onclick=()=>{$('pfBio').value=me.bio||'';renderProfile();show('profile')};
