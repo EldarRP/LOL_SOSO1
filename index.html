@@ -807,11 +807,16 @@ function connect(will){
     let i=0;const bad=[];
     const next=()=>{
       if(i>=BROKERS.length)return rej(new Error('нет связи с игровыми серверами ('+bad.join(', ')+'). Открой игру в обычном браузере (Chrome), а не внутри Claude.'));
-      const c=mqtt.connect(BROKERS[i++],{clientId:'mla'+Math.random().toString(36).slice(2,10),will,reconnectPeriod:0,connectTimeout:6000});
+      const c=mqtt.connect(BROKERS[i++],{clientId:'mla'+Math.random().toString(36).slice(2,10),will,reconnectPeriod:2000,connectTimeout:6000,keepalive:20,resubscribe:true});
       let ok=false,dead=false;
       const fail=()=>{if(ok||dead)return;dead=true;bad.push(BROKERS[i-1].split('//')[1].split(':')[0]);clearTimeout(t);try{c.end(true)}catch(e){}next()};
       const t=setTimeout(fail,7000);
-      c.on('connect',()=>{if(dead)return;ok=true;clearTimeout(t);res(c)});
+      c.on('connect',()=>{
+        if(dead)return;
+        if(!ok){ok=true;clearTimeout(t);res(c);return}
+        // Переподключились: подписки mqtt.js возобновляет сам, а соперник должен снова увидеть наш статус
+        if(c===cli&&sid&&oppId)G.presence({});
+      });
       c.on('error',fail);c.on('close',fail);
     };next();
   });
@@ -819,14 +824,27 @@ function connect(will){
 const pub=(t,o,retain)=>cli&&cli.publish(P+t,o===''?'':JSON.stringify(o),{retain:!!retain});
 G={presence:patch=>{Object.assign(myState,patch);pub('g/'+sid+'/p/'+ME.id,myState,true)}};
 const myWill=()=>({topic:P+'g/'+sid+'/p/'+ME.id,payload:'',retain:true});
+// Пустой статус (Will брокера) не даёт победу сразу: соперник мог просто потерять связь. Ждём OPP_GRACE на возврат.
+const OPP_GRACE=15000;
+let oppGoneT=null;
+function oppGone(now){
+  clearTimeout(oppGoneT);oppGoneT=null;
+  if(now||!matchLive||finished){onOpp(null);return}
+  oppGoneT=setTimeout(()=>{oppGoneT=null;onOpp(null)},OPP_GRACE);
+}
 function onGameMsg(t,m){
   const pre=P+'g/'+sid+'/p/';
   if(!t.startsWith(pre))return;
   const id=t.slice(pre.length);
   if(id===ME.id||id!==oppId)return;
   const s=m.toString();
-  if(!s){onOpp(null);return}
-  try{onOpp({presence:JSON.parse(s)})}catch(e){}
+  try{
+    if(!s){oppGone(false);return}
+    const pr=JSON.parse(s);
+    if(pr&&pr.bye){oppGone(true);return}   // явный выход соперника — засчитываем сразу
+    clearTimeout(oppGoneT);oppGoneT=null;
+    onOpp({presence:pr});
+  }catch(e){}
 }
 try{$('nameIn').value=localStorage.getItem('mlpname')||''}catch(e){}
 $('start').onclick=()=>{
@@ -940,7 +958,7 @@ function watchOpp(){
   oppFbOnline=true;
   oppFbCb=s=>{
     oppFbOnline=s.val()!==false;
-    if(!oppFbOnline)setTimeout(()=>{if(matchLive&&!finished&&!oppFbOnline)forfeitWin(!!(opp&&opp.deb&&myDeb))},4000);
+    if(!oppFbOnline)setTimeout(()=>{if(matchLive&&!finished&&!oppFbOnline)forfeitWin(!!(opp&&opp.deb&&myDeb))},OPP_GRACE);
   };
   oppFbRef.on('value',oppFbCb);
 }
@@ -955,6 +973,7 @@ function beginMatch(){
   $('quit').classList.remove('hide');
 }
 function endMatch(){
+  clearTimeout(oppGoneT);oppGoneT=null;
   matchLive=false;
   disarmLoss();
   unwatchOpp();
@@ -1315,7 +1334,7 @@ function cancelWait(back){
 function leaveGame(){
   endMatch();
   epoch++;
-  try{if(cli&&sid)pub('g/'+sid+'/p/'+ME.id,'',true)}catch(e){}
+  try{if(cli&&sid){pub('g/'+sid+'/p/'+ME.id,{bye:1});pub('g/'+sid+'/p/'+ME.id,'',true)}}catch(e){}
   const c=cli;setTimeout(()=>{try{c&&c.end(true)}catch(e){}},300);
   cli=null;clearInterval(hb);sid='';oppId='';roomName='';
   try{if(curInvite){curInvite.off();curInvite.remove()}}catch(e){}curInvite=null;
