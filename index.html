@@ -587,8 +587,8 @@ async function battle0(ep){
   $('spin').classList.add('hide');$('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
   {const r=calc();sa=r.sa;sb=r.sb}
   meWin=sa>sb||(sa===sb&&ME.id<opp.id);
-  if(ME.id===ids()[0])askStory();
-  else setTimeout(()=>finish('Волны улеглись: победила команда, которая оказалась сильнее.'),30000);
+  if(ME.id===ids()[0])askStory(ep);
+  else setTimeout(()=>{if(ep===epoch)finish('Волны улеглись: победила команда, которая оказалась сильнее.')},30000);
   setMsg('Все карты выбраны');
   await wk(ep,2000);
   stage='battle';stgOff('wheelWrap');
@@ -599,14 +599,14 @@ async function battle0(ep){
   fieldReady=true;
   if(pendingStory)finish(pendingStory);
 }
-async function askStory(){
+async function askStory(ep){
   const nm=side=>idx(side).map(i=>{const e=effOf(side,i);return chr(e.c).n+(e.combo?' [злодейский союз +4/+2/+3]':'')+(e.c===FUSID?' [Твайлайт и подруги объединились]':'')+(e.c===FUSID2?' [Эпл Блум, Скуталу и Свити Белл объединились в Трио Друзей]':'')+(e.c===FUSID3?' [Эпплджек, Эпл Блум и Бабуля Смит объединились в Семью Эплов]':'')+' (атака '+e.a+', тактика '+e.t+', защита '+e.d+(e.deb?', ухудшение «'+e.deb.n+'»':'')+(e.blocked?', выбыл из боя':'')+')'}).join('; ');
   const wn=side=>idx(side).map(i=>chr(effOf(side,i).c).n).join(', ');
   const prompt=`Ты рассказчик в игре по «My Little Pony». Бой в воде.\nКоманда A: ${nm('me')}.\nКоманда B: ${nm('opp')}.\nНанесённый урон: A — ${sa.toFixed(1)}, B — ${sb.toFixed(1)}. Победила команда ${meWin?'A':'B'}. Коротко (2–3 предложения, по-русски) опиши, как проходил бой, учитывая атаку, тактику, защиту и ухудшения. Без заголовков и списков.`;
   let t='';
   try{const S=await claude.use('sample');if(S){const r=await S(prompt);t=(r.text||'').trim()}}catch(e){}
   if(!t)t=`${wn(meWin?'me':'opp')} прорвали защиту ${wn(meWin?'opp':'me')} и выиграли бой в воде. (Заглушка: ИИ-рассказчик недоступен.)`;
-  t=t.slice(0,700);G.presence({story:t});finish(t);
+  if(ep!==epoch)return;t=t.slice(0,700);G.presence({story:t});finish(t);
 }
 function finish(t){
   if(finished)return;
@@ -679,7 +679,7 @@ function rematchUI(){
 $('again').onclick=()=>{if(gone||oppLeft||myState.rm===1)return;G.presence({rm:1});rematchUI();update()};
 $('toMenu').onclick=()=>leaveGame();
 function newRound(){
-  round++;if(!baseRoom)baseRoom=roomName;roomName=baseRoom+'#'+round;
+  epoch++;round++;if(!baseRoom)baseRoom=roomName;roomName=baseRoom+'#'+round;
   myCards=[];shown={me:[],opp:[]};animating=false;OV=null;FZ=[];FN=-1;HL=[];coinDone=false;battleStarted=false;gone=false;
   fieldReady=false;finished=false;pendingStory='';story='';meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
   stage='init';lock=true;
@@ -950,21 +950,6 @@ function quitMatch(){
 $('quit').onclick=quitMatch;
 
 // Счётчик комбо за все игры (увеличивается сразу, как только комбо сработало)
-// Разовый бонус +3 комбо игроку floppie (комбо, сделанные до появления счётчика).
-// Флаг bonusApplied пишется в ту же транзакцию, что и бонус, поэтому начисление происходит ровно один раз.
-let floppieChecked=false;
-function floppieBonus(uid,v){
-  if(floppieChecked||!v||String(v.nick||'').toLowerCase()!=='floppie'||v.bonusApplied||!fdb)return;
-  floppieChecked=true;
-  let applied=false;
-  fdb.ref('users/'+uid).transaction(d=>{
-    applied=!!d&&!d.bonusApplied;
-    if(!applied)return d;
-    return {...d,combos:(d.combos||0)+3,bonusApplied:true};
-  },(e,committed)=>{
-    if(!e&&committed&&applied)err('Бонус начислен: +3 комбо ✨');
-  });
-}
 function countCombo(n){
   if(me&&fdb)fdb.ref('users/'+me.uid+'/combos').transaction(v=>(v||0)+(n||1));
 }
@@ -1060,7 +1045,7 @@ function onUser(u){
   const cb=ref.on('value',s=>{
     const v=s.val();
     if(!v){if(!regBusy){err('Профиль не найден, войди заново');auth.signOut()}return}
-    me={uid:u.uid,...v};ME.name=v.nick;myState.name=v.nick;myState.uid=u.uid;floppieBonus(u.uid,v);renderHome();renderProfile();
+    me={uid:u.uid,...v};ME.name=v.nick;myState.name=v.nick;myState.uid=u.uid;renderHome();renderProfile();
     if(scr===''||scr==='auth')show('home');
     hideLoader();
   });
