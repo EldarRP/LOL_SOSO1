@@ -52,6 +52,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .fadeout{opacity:0;transition:opacity .9s}.fadein{animation:fi .9s}@keyframes fi{from{opacity:0}to{opacity:1}}
 .in{width:100%;padding:13px;border-radius:6px;border:1px solid var(--ln);background:var(--bg);color:var(--tx);font-size:16px;margin-top:8px}
 .in::placeholder{color:var(--mut)}
+.av{border-radius:50%;object-fit:cover;flex:none;display:flex;align-items:center;justify-content:center;font-weight:800;background:var(--ln);color:var(--tx);overflow:hidden;box-sizing:border-box}
 .srv{display:flex;justify-content:space-between;align-items:center;text-align:left;padding:12px;border:1px solid var(--ln);border-radius:6px;margin-top:8px;background:var(--bg);cursor:pointer;gap:8px}
 .srv b{display:block}.srv small{color:var(--mut)}.srv span{font-size:20px}
 .err{color:#ff6b6b;font-size:13px;margin-top:8px;min-height:16px}
@@ -230,6 +231,7 @@ textarea.in{resize:none;font-family:inherit}
     <button class="btn sec hide" id="toAuth">Войти в аккаунт</button>
   </div>
   <div id="profile" class="hide">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:6px"><div id="pfAv"></div><button class="btn sec" id="pfAvBtn" style="width:auto;margin-top:0;padding:0 14px;font-size:13px">Сменить аватарку</button><input type="file" id="pfAvIn" accept="image/*" class="hide"></div>
     <div id="pfNick" style="font-weight:800;font-size:20px"></div>
     <div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="pfNew" maxlength="12" placeholder="Новый ник" autocapitalize="none" style="margin-top:0"><button class="btn" id="pfRename" style="width:auto;margin-top:0;padding:0 14px;font-size:13px">Сменить</button></div>
     <div id="pfMsg" class="pw" style="min-height:18px;margin-top:4px"></div>
@@ -503,7 +505,7 @@ async function reveal(side,card){
   const fid=FUSALL.find(f=>post.includes(f)&&!prev.includes(f)),fusedNow=fid!=null;
   const vilNow=VIL.every(v=>post.includes(v))&&!VIL.every(v=>prev.includes(v));
   const x=CH[card];
-  {const cc=(fusedNow?1:0)+(vilNow?1:0);if(side==='me'&&cc)countCombo(cc)}
+  if(side==='me'&&(fusedNow||vilNow))countCombo(1);
   if(fusedNow){
     PRE=true;drawSlots();$('wlab').textContent=x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d;
     await wait(1000);
@@ -968,11 +970,41 @@ function renderHome(){
   updMail();
   if(me){$('hiNick').textContent=me.nick;$('hiStat').textContent='🏆 '+(me.wins||0)+' · 💔 '+(me.losses||0)+' · ✨ '+(me.combos||0)+' комбо'}
 }
+function avEl(u,size,ring){
+  const d=document.createElement('div');d.className='av';d.style.cssText='width:'+size+'px;height:'+size+'px;font-size:'+Math.round(size*.45)+'px'+(ring?';border:3px solid '+ring:'');
+  if(u&&u.avatar){const i=document.createElement('img');i.src=u.avatar;i.alt='';i.style.cssText='width:100%;height:100%;object-fit:cover';d.append(i)}
+  else d.textContent=((u&&u.nick)||'?').charAt(0).toUpperCase();
+  return d;
+}
+function cropAvatar(file){
+  return new Promise((res,rej)=>{
+    const url=URL.createObjectURL(file),img=new Image();
+    img.onload=()=>{
+      const S=128,c=document.createElement('canvas');c.width=c.height=S;
+      const m=Math.min(img.width,img.height),sx=(img.width-m)/2,sy=(img.height-m)/2;
+      c.getContext('2d').drawImage(img,sx,sy,m,m,0,0,S,S);
+      URL.revokeObjectURL(url);res(c.toDataURL('image/jpeg',.82));
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('Не удалось прочитать картинку'))};
+    img.src=url;
+  });
+}
 function renderProfile(){
   if(!me)return;
+  const pa=$('pfAv');pa.innerHTML='';pa.append(avEl(me,96,'var(--ln)'));
   const w=me.wins||0,l=me.losses||0;
   $('pfNick').textContent=me.nick;$('pfC').textContent=me.combos||0;$('pfW').textContent=w;$('pfL').textContent=l;$('pfR').textContent=(w+l)?Math.round(100*w/(w+l))+'%':'–';
 }
+$('pfAvBtn').onclick=()=>$('pfAvIn').click();
+$('pfAvIn').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';
+  if(!f||!me||!fdb)return;
+  try{
+    const data=await cropAvatar(f);
+    await fdb.ref('users/'+me.uid+'/avatar').set(data);
+    $('pfMsg').textContent='Аватарка обновлена';
+  }catch(x){$('pfMsg').textContent='Не удалось: '+(x.message||x)}
+};
 function onUser(u){
   meOff.forEach(f=>f());meOff=[];
   const ref=fdb.ref('users/'+u.uid);
@@ -1006,9 +1038,11 @@ function onUser(u){
 function card(u,t1,f1,t2,f2,online){
   const d=document.createElement('div');d.className='srv';d.style.cursor='default';
   const l=document.createElement('div'),b=document.createElement('b'),sm=document.createElement('small');
-  b.textContent=(online===undefined?'':(online?'🟢 ':'⚪ '))+u.nick;
+  b.textContent=u.nick;
   sm.textContent=(u.wins!==undefined?'🏆'+(u.wins||0)+' 💔'+(u.losses||0)+' ✨'+(u.combos||0):'')+(u.bio?(u.wins!==undefined?' · ':'')+u.bio:'');
-  l.append(b,sm);d.append(l);
+  l.append(b,sm);
+  if(online===undefined)d.append(l);
+  else{const lf=document.createElement('div');lf.style.cssText='display:flex;align-items:center;gap:10px;min-width:0';lf.append(avEl(u,44,online?'#3ddc84':'#8793a5'),l);d.append(lf)}
   const bx=document.createElement('div');bx.style.cssText='display:flex;gap:6px';
   [[t1,f1],[t2,f2]].forEach(([t,f])=>{if(!t)return;const x=document.createElement('button');x.className='dbtn';x.textContent=t;if(f)x.onclick=()=>f(x);else x.disabled=true;bx.append(x)});
   d.append(bx);return d;
