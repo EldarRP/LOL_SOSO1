@@ -1095,7 +1095,7 @@ function renderFr(){
   const el=$('fList');el.innerHTML='';
   const arr=Object.entries(FR).filter(([k,x])=>x.u).sort((a,b)=>(b[1].on?1:0)-(a[1].on?1:0));
   if(!arr.length){el.innerHTML='<div class="pw" style="margin:8px 0">Пока никого. Найди друга по нику!</div>';return}
-  arr.forEach(([k,x])=>el.append(card(x.u,x.on?'⚔ Вызвать':'Не в сети',x.on?()=>askDuel(k,x.u.nick):null,'🗑',()=>{if(confirm('Удалить '+x.u.nick+' из друзей?'))fdb.ref().update({['friends/'+me.uid+'/'+k]:null,['friends/'+k+'/'+me.uid]:null}).catch(e=>err('Не удалось удалить: '+(e.message||e)))},!!x.on)));
+  arr.forEach(([k,x])=>el.append(card(x.u,x.on?'⚔ Вызвать':null,x.on?()=>askDuel(k,x.u.nick):null,'🗑',()=>{if(confirm('Удалить '+x.u.nick+' из друзей?'))fdb.ref().update({['friends/'+me.uid+'/'+k]:null,['friends/'+k+'/'+me.uid]:null}).catch(e=>err('Не удалось удалить: '+(e.message||e)))},!!x.on)));
 }
 const NF={req:{},inv:{}};let curInvite=null;
 function renderReq(v){NF.req=v;updateNotif()}
