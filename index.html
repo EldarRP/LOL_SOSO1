@@ -173,6 +173,7 @@ textarea.in{resize:none;font-family:inherit}
 <div id="loader"><div class="lg">⚔️</div><div class="lt">Пони-Арена</div><div class="bar"><i></i></div><div id="lmsg">Загрузка…</div></div>
 <button id="mail" class="off" aria-label="Уведомления">✉️<span id="mailN"></span></button>
 <button id="book" class="off" aria-label="Книга комбо">📖</button>
+<div id="duelPick" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><b id="dpTitle">Вызвать друга</b><div style="margin:10px 0 4px;font-weight:700">Режим игры</div><div id="modeDp"></div><button class="btn" id="dpGo">⚔ Вызвать</button><button class="btn sec" id="dpCancel">Отмена</button></div></div>
 <div id="notif" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
 <div id="bookP" class="hide"><div class="panel bk">
   <div class="bkh"><b>📖 Книга комбо</b><button class="dbtn" id="bClose" style="padding:6px 12px">✕</button></div>
@@ -259,6 +260,8 @@ textarea.in{resize:none;font-family:inherit}
     <div style="margin:6px 0 4px;font-weight:700">Новый сервер</div>
     <input class="in" id="srvName" maxlength="30" placeholder="Название сервера">
     <input class="in" id="srvPass" maxlength="20" placeholder="Пароль (необязательно)">
+    <div style="margin:10px 0 4px;font-weight:700;text-align:left">Режим игры</div>
+    <div id="modeCr"></div>
     <button class="btn" id="doCreate">Создать</button>
     <button class="btn sec" id="back2">Назад</button>
   </div>
@@ -407,6 +410,32 @@ function drawSlots(){
   }
 }
 const rnd=()=>Math.floor(Math.random()*CH.length);
+// ===== Режимы: arcade — карты выпадают случайно; real — взятая карта больше не выпадает сопернику =====
+let MODE='arcade';
+const MODES={
+  arcade:{e:'🎡',n:'Аркадный',d:'Карты выпадают случайно. Одна и та же карта может достаться обоим игрокам. Комбо работают.'},
+  real:{e:'🎯',n:'Реалистичный',d:'Забранная карта становится серой на рулетке и больше не выпадает сопернику: каждый герой достаётся только одному игроку. Комбо работают.'}
+};
+const modeLbl=m=>{const x=MODES[m==='real'?'real':'arcade'];return x.e+' '+x.n};
+function pickCard(){
+  if(MODE!=='real')return rnd();
+  const taken=new Set([...myCards,...((opp&&opp.cards)||[])]);
+  const free=[];for(let i=0;i<CH.length;i++)if(!taken.has(i))free.push(i);
+  return free.length?free[Math.floor(Math.random()*free.length)]:rnd();
+}
+function mkModeSel(el,init,cb){
+  el.innerHTML='';
+  const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px';
+  const ds=document.createElement('div');ds.className='pw';ds.style.cssText='margin-top:8px;min-height:54px;text-align:left';
+  const btns={};
+  const set=m=>{cb(m);for(const k in btns)btns[k].classList.toggle('on',k===m);ds.textContent=MODES[m].d};
+  for(const k of ['arcade','real']){
+    const b=document.createElement('button');b.type='button';b.className='dbtn';b.style.padding='12px 4px';
+    b.innerHTML='<span>'+MODES[k].e+'</span><b>'+MODES[k].n+'</b>';
+    b.onclick=()=>set(k);btns[k]=b;row.append(b);
+  }
+  el.append(row,ds);set(init);
+}
 const RC={1:'#4a5565',2:'#2a6fa8',3:'#7a45bd',4:'#b8860b'};
 let rot=0;
 const WH=[23,3,14,8,19,0,12,17,5,21,10,1,16,22,6,13,2,18,9,20,4,15,7,11]; // порядок секторов на колесе (перемешан)
@@ -422,6 +451,10 @@ function idleStrip(){
     if(IMG[WH[i]]){x.beginPath();x.arc(0,0,22,0,7);x.clip();const m=IMG[WH[i]],q=Math.min(m.width,m.height);x.drawImage(m,(m.width-q)/2,(m.height-q)/2,q,q,-22,-22,44,44)}
     else{x.font='30px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(CH[WH[i]].e,0,0)}
     x.restore();
+    if(MODE==='real'&&(shown.me.includes(WH[i])||shown.opp.includes(WH[i]))){
+      x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R,i*A-A/2-Math.PI/2,i*A+A/2-Math.PI/2);x.closePath();
+      x.fillStyle='rgba(30,32,38,.82)';x.fill();x.strokeStyle='#0e1116';x.lineWidth=3;x.stroke();
+    }
   }
   x.beginPath();x.arc(cx,cy,34,0,7);x.fillStyle='#0e1116';x.fill();x.strokeStyle='#f2a900';x.lineWidth=4;x.stroke();
   x.font='30px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('⚔️',cx,cy+2);
@@ -501,6 +534,7 @@ async function reveal(side,card){
   await spinTo(card);
   const sd=side==='me'?'m':'o',prev=lay(shown[side]);
   shown[side].push(card);
+  if(MODE==='real')idleStrip();
   const pre=lay(shown[side],true),post=lay(shown[side]);
   const fid=FUSALL.find(f=>post.includes(f)&&!prev.includes(f)),fusedNow=fid!=null;
   const vilNow=VIL.every(v=>post.includes(v))&&!VIL.every(v=>prev.includes(v));
@@ -528,7 +562,7 @@ async function reveal(side,card){
 }
 $('spin').onclick=()=>{
   if(lock||stage!=='spin'||animating||!myTurn()||fill(myCards)>=nMe())return;
-  myCards=[...myCards,rnd()];$('spin').disabled=true;
+  myCards=[...myCards,pickCard()];$('spin').disabled=true;
   G.presence({cards:myCards});update();
 };
 
@@ -676,7 +710,7 @@ async function toSpin0(ep){
   $('cOpp').classList.remove('pick');
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
   await wk(ep,1000);
-  drawSlots();
+  drawSlots();idleStrip();
   stgOn('wheelWrap');
   await wk(ep,1000);
   stage='spin';lock=false;update();
@@ -755,11 +789,12 @@ $('back1').onclick=()=>show('home');
 $('back2').onclick=()=>show('menu');
 function stopBrowse(){clearInterval(rt);if(cli){try{cli.end(true)}catch(e){}cli=null}}
 $('back3').onclick=()=>{stopBrowse();show('menu')};
-$('goCreate').onclick=()=>{show('create');$('srvName').value=ME.name+' — игра'};
+let crMode='arcade',dpMode='arcade';
+$('goCreate').onclick=()=>{show('create');$('srvName').value=ME.name+' — игра';mkModeSel($('modeCr'),crMode,m=>{crMode=m})};
 
 // --- создать сервер ---
 $('doCreate').onclick=async()=>{
-  waitBack='menu';
+  waitBack='menu';MODE=crMode;
   const name=($('srvName').value.trim()||ME.name+' — игра').slice(0,30),pass=$('srvPass').value;
   sid=Math.random().toString(36).slice(2,10);roomName=sid;
   show('waitBox');$('waitTxt').innerHTML='Подключаемся<span class="dots"></span>';
@@ -778,9 +813,9 @@ $('doCreate').onclick=async()=>{
     onGameMsg(t,m);
   });
   cli.subscribe([P+'g/'+sid+'/join',P+'g/'+sid+'/p/+']);
-  const listing=()=>pub('srv/'+sid,{name,host:ME.name,hostId:ME.id,ph:pass?hs(pass):'',t:Date.now(),open:true},true);
+  const listing=()=>pub('srv/'+sid,{name,host:ME.name,hostId:ME.id,ph:pass?hs(pass):'',t:Date.now(),open:true,mode:MODE},true);
   listing();hb=setInterval(listing,15000);
-  $('waitTxt').innerHTML='Сервер «'+name.replace(/[<>&]/g,'')+'» создан'+(pass?' 🔒':'')+'<br>Ждём соперника<span class="dots"></span>';
+  $('waitTxt').innerHTML='Сервер «'+name.replace(/[<>&]/g,'')+'» создан'+(pass?' 🔒':'')+'<br>'+modeLbl(MODE)+'<br>Ждём соперника<span class="dots"></span>';
 };
 
 // --- список серверов ---
@@ -805,7 +840,7 @@ function renderList(){
     const d=document.createElement('div');d.className='srv';
     const l=document.createElement('div');
     const b=document.createElement('b');b.textContent=x.name;
-    const sm=document.createElement('small');sm.textContent='Хозяин: '+x.host;
+    const sm=document.createElement('small');sm.textContent='Хозяин: '+x.host+' · '+modeLbl(x.mode);
     l.append(b,sm);d.append(l);
     const ic=document.createElement('span');ic.textContent=x.ph?'🔒':'▶';d.append(ic);
     d.onclick=()=>tryJoin(id,x);
@@ -814,6 +849,7 @@ function renderList(){
 }
 async function tryJoin(id,x){
   if(x.ph){const p=prompt('Пароль сервера «'+x.name+'»');if(p===null)return;if(hs(p)!==x.ph){err('Неверный пароль');return}}
+  MODE=x.mode==='real'?'real':'arcade';
   stopBrowse();sid=id;roomName=id;oppId=x.hostId;waitBack=x.duel?'home':'browse';
   show('waitBox');$('waitTxt').innerHTML='Заходим на сервер<span class="dots"></span>';
   try{cli=await connect(myWill())}catch(e){show(x.duel?'home':'browse');err('Нет связи: '+e.message);return}
@@ -1047,11 +1083,19 @@ function card(u,t1,f1,t2,f2,online){
   [[t1,f1],[t2,f2]].forEach(([t,f])=>{if(!t)return;const x=document.createElement('button');x.className='dbtn';x.textContent=t;if(f)x.onclick=()=>f(x);else x.disabled=true;bx.append(x)});
   d.append(bx);return d;
 }
+let dpTarget=null;
+function askDuel(uid,nick){
+  dpTarget={uid,nick};$('dpTitle').textContent='Вызвать '+nick;
+  mkModeSel($('modeDp'),dpMode,m=>{dpMode=m});
+  $('duelPick').classList.remove('hide');
+}
+$('dpCancel').onclick=()=>{$('duelPick').classList.add('hide');dpTarget=null};
+$('dpGo').onclick=()=>{const t=dpTarget;$('duelPick').classList.add('hide');dpTarget=null;if(t)duelHost(t.uid,t.nick,dpMode)};
 function renderFr(){
   const el=$('fList');el.innerHTML='';
   const arr=Object.entries(FR).filter(([k,x])=>x.u).sort((a,b)=>(b[1].on?1:0)-(a[1].on?1:0));
   if(!arr.length){el.innerHTML='<div class="pw" style="margin:8px 0">Пока никого. Найди друга по нику!</div>';return}
-  arr.forEach(([k,x])=>el.append(card(x.u,x.on?'⚔ Вызвать':'Не в сети',x.on?()=>duelHost(k,x.u.nick):null,'🗑',()=>{if(confirm('Удалить '+x.u.nick+' из друзей?'))fdb.ref().update({['friends/'+me.uid+'/'+k]:null,['friends/'+k+'/'+me.uid]:null}).catch(e=>err('Не удалось удалить: '+(e.message||e)))},!!x.on)));
+  arr.forEach(([k,x])=>el.append(card(x.u,x.on?'⚔ Вызвать':'Не в сети',x.on?()=>askDuel(k,x.u.nick):null,'🗑',()=>{if(confirm('Удалить '+x.u.nick+' из друзей?'))fdb.ref().update({['friends/'+me.uid+'/'+k]:null,['friends/'+k+'/'+me.uid]:null}).catch(e=>err('Не удалось удалить: '+(e.message||e)))},!!x.on)));
 }
 const NF={req:{},inv:{}};let curInvite=null;
 function renderReq(v){NF.req=v;updateNotif()}
@@ -1063,7 +1107,7 @@ function updateNotif(){
   updMail();
   const el=$('nList');el.innerHTML='';
   if(!n){el.innerHTML='<div class="pw" style="margin:14px 0">Уведомлений нет</div>';return}
-  iv.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'⚔ зовёт на поединок 1 на 1'},'Принять',()=>acceptInvite(v),'✕',()=>fdb.ref('invites/'+me.uid+'/'+from).remove())));
+  iv.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'⚔ зовёт на поединок 1 на 1 · '+modeLbl(v.mode)},'Принять',()=>acceptInvite(v),'✕',()=>fdb.ref('invites/'+me.uid+'/'+from).remove())));
   rq.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'👤 хочет добавить в друзья'},'Принять',()=>fdb.ref().update({['friends/'+me.uid+'/'+from]:true,['friends/'+from+'/'+me.uid]:true,['requests/'+me.uid+'/'+from]:null}),'✕',()=>fdb.ref('requests/'+me.uid+'/'+from).remove())));
 }
 setInterval(()=>{if(me)updateNotif()},15000);
@@ -1080,10 +1124,10 @@ $('bookP').onclick=e=>{if(e.target===$('bookP'))togBook(false)};
 $('notif').onclick=e=>{if(e.target===$('notif'))togNotif(false)};
 function acceptInvite(v){
   togNotif(false);
-  tryJoin(v.sid,{hostId:v.hostId,ph:'',name:'дуэль',duel:true});
+  tryJoin(v.sid,{hostId:v.hostId,ph:'',name:'дуэль',duel:true,mode:v.mode});
 }
-async function duelHost(friendUid,friendNick){
-  waitBack='friends';
+async function duelHost(friendUid,friendNick,mode){
+  waitBack='friends';MODE=mode==='real'?'real':'arcade';
   sid=Math.random().toString(36).slice(2,10);roomName=sid;
   show('waitBox');$('waitTxt').innerHTML='Приглашаем '+friendNick.replace(/[<>&]/g,'')+'<br>Ждём ответа<span class="dots"></span>';
   try{cli=await connect(myWill())}catch(e){show('friends');err('Нет связи: '+e.message);return}
@@ -1101,7 +1145,7 @@ async function duelHost(friendUid,friendNick){
   cli.subscribe([P+'g/'+sid+'/join',P+'g/'+sid+'/p/+']);
   try{
     curInvite=fdb.ref('invites/'+friendUid+'/'+me.uid);
-    await curInvite.set({nick:me.nick,sid,hostId:ME.id,t:Date.now()});
+    await curInvite.set({nick:me.nick,sid,hostId:ME.id,t:Date.now(),mode:MODE});
     curInvite.onDisconnect().remove();
     curInvite.on('value',s=>{if(!s.exists()&&!guest&&!declined){declined=true;err('Друг отклонил приглашение');setTimeout(()=>cancelWait('friends'),1600)}},e=>err('Не вижу ответ друга: обнови правила Firebase (раздел invites)'));
   }catch(e){err('Не удалось отправить приглашение: '+(e.message||e));return}
