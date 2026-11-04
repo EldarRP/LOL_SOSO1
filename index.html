@@ -508,6 +508,9 @@ function landOfVictim(V){
   const cards=cardsOf(V),k=d.slot-1;
   // карта встаёт в первый свободный слот. Если выбранный слот так и не заполнился (слияния освободили место раньше),
   // кража не пропадает: уходит ближайшая по месту карта. Правило детерминированно, поэтому у обоих игроков одинаково.
+  // Пока жертва вытянула не все карты, запасной вариант выбирать нельзя: нужный слот может заполниться следующей картой.
+  // Иначе кража «прилипала» к первой попавшейся карте, а потом перескакивала на другую.
+  const full=fill(cards)>=nSide(V);
   let best=null;
   for(let j=0;j<cards.length;j++){
     const pre=layX2(cards.slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
@@ -515,7 +518,7 @@ function landOfVictim(V){
     const pos=p>=0?p:pre.length;
     const cand={j,k:pos,members:[{c:cards[j],t:'o'+j}]};
     if(pos===k)return cand;
-    if(!best||Math.abs(pos-k)<=Math.abs(best.k-k))best=cand;
+    if(full&&(!best||Math.abs(pos-k)<=Math.abs(best.k-k)))best=cand;
   }
   return best;
 }
@@ -612,7 +615,7 @@ function drawSlots(){
     const gone=(rv()&&landDone(side))?removedOf(side).size:0;
     // украденная карта уже у вора, а его собственные карты ещё вытягиваются: показываем её сразу, последней в колонке
     const pend=(rv()&&!revealDone(side)&&landDone(side==='me'?'opp':'me'))?inboxOf(side):[];
-    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone-pend.length,arr.length)):3;
+    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):3;
     const n=base+pend.length+(STL.flying===side?1:0);
     const prev=DRAWN[id],now={},occ={},sd=side==='me'?'m':'o';
     host.innerHTML=Array.from({length:n},(_,i)=>i).map(i=>{
