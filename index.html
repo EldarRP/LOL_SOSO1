@@ -180,7 +180,9 @@ textarea.in{resize:none;font-family:inherit}
 .slot.f.fzc.k3{border-color:#ff6b6b;box-shadow:0 0 14px #ff4d4daa,0 0 24px #3ecf8e88;background:linear-gradient(135deg,#3a1b1b,#1b3a24)}
 .fzban.fz.k3{background:linear-gradient(90deg,#c0392b,#ff6b6b,#3ecf8e);animation:k3ban 2.2s ease both;box-shadow:0 0 30px #ff4d4daa}
 @media(prefers-reduced-motion:reduce){.slot.f.fz,.slot.f.fz.k2,.slot.f.fz.k3,.slot.f.fzn.k2,.slot.f.fzn.k3,.fzban.fz.k2,.fzban.fz.k3,.slot.f.fzn,.slot.f.vil,.fzban{animation:none}}
-.slot.f.still{animation:none!important} /* анимация карточки играет один раз, при появлении, а не при каждой перерисовке */
+.slot.f.still{animation:none!important}
+.slot.f.land{animation:landIn 1.1s ease-out both}
+@keyframes landIn{0%{filter:brightness(1.7)}100%{filter:brightness(1)}} /* анимация карточки играет один раз, при появлении, а не при каждой перерисовке */
 /* Аватарка с украшениями */
 .avw{position:relative;flex:none;display:inline-block}
 .avw>.av{position:relative;z-index:1}
@@ -603,12 +605,24 @@ function cardHtml(side,i){
 }
 const rv=()=>stage==='trans'||stage==='spin'||stage==='battle';
 const DRAWN={cMe:{},cOpp:{}};
+// Положение карты в колонке по вёрстке (offsetTop), а не по getBoundingClientRect:
+// rect учитывает идущие анимации (pop-масштаб, сдвиг), из-за этого карта при перерисовке
+// записывала «не своё» место и потом прыгала. Если карта сейчас едет по FLIP, берём её текущий сдвиг.
+function layTop(el){
+  let t=el.offsetTop;
+  const m=getComputedStyle(el).transform;
+  if(m&&m!=='none'){
+    const v=m.match(/^matrix(3d)?\(([^)]+)\)/);
+    if(v){const p=v[2].split(',').map(Number);t+=(v[1]?p[13]:p[5])||0}
+  }
+  return t;
+}
 function drawSlots(){
   for(const [id,side] of [['cMe','me'],['cOpp','opp']]){
     const host=$(id);
     // где сейчас стоит каждая карта: по ключу самой карты, а не по номеру слота
     const was=new Map();
-    host.querySelectorAll('[data-key]').forEach(el=>{const r=el.getBoundingClientRect();if(r.height)was.set(el.dataset.key,r.top)});
+    host.querySelectorAll('[data-key]').forEach(el=>{if(el.offsetHeight)was.set(el.dataset.key,layTop(el))});
     const arr=layS(side);
     const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
     // украденная карта уже ушла из слота жертвы: под неё место не держим
@@ -629,7 +643,7 @@ function drawSlots(){
         occ[c]=(occ[c]||0)+1;
         const key=side+'|'+c+'|'+occ[c];
         now[key]='';
-        return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(c)}${prev[key]!==undefined?' still':''}">${cardInner(c)}<div class="bd" style="color:var(--ok)">🦹 похищен</div></div>`;
+        return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(c)}${prev[key]!==undefined?' still':' land'}">${cardInner(c)}<div class="bd" style="color:var(--ok)">🦹 похищен</div></div>`;
       }
       const cI=i<arr.length?arr[i]:null;
       if(cI!=null){
@@ -651,8 +665,8 @@ function drawSlots(){
     host.querySelectorAll('[data-key]').forEach(el=>{
       const t=was.get(el.dataset.key);
       if(t==null)return;
-      const dy=t-el.getBoundingClientRect().top;
-      if(Math.abs(dy)>1)el.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],{duration:Math.min(800,380+Math.abs(dy)*0.8),easing:'cubic-bezier(.2,.7,.2,1)'});
+      const dy=t-el.offsetTop;
+      if(Math.abs(dy)>1)el.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],{duration:Math.min(1400,800+Math.abs(dy)*1.2),easing:'cubic-bezier(.45,.05,.25,1)'});
     });
   }
   markTargets();
