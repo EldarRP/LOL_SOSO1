@@ -88,6 +88,10 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 #cOpp.pick .slot{cursor:pointer;border-color:var(--ac);animation:pk 1.2s ease-in-out infinite}
 @keyframes pk{50%{box-shadow:0 0 10px var(--ac)}}
 .slot.sel{border-style:solid!important;border-color:var(--ac)!important;box-shadow:0 0 0 3px var(--ac),0 0 18px var(--ac)!important;transform:scale(1.05);animation:none!important}
+#cOpp .slot.sel{position:relative;z-index:2;border-style:solid!important;border-color:#fff3b0!important;box-shadow:0 0 0 3px var(--ac),0 0 22px var(--ac),0 0 36px #e8590c!important;transform:scale(1.06);animation:none!important}
+#cOpp .slot.sel::after{content:"🎯";position:absolute;top:-11px;right:-11px;font-size:15px;line-height:1;background:var(--ac);border-radius:50%;padding:3px;box-shadow:0 0 8px var(--ac);pointer-events:none}
+#cOpp .slot.hl-opp{border-style:solid!important;border-color:#ff6b6b!important;box-shadow:0 0 0 2px #ff6b6b,0 0 14px #ff6b6baa!important;animation:none!important}
+#cMe .slot.hl-me{border-style:solid!important;border-color:#4db3ff!important;box-shadow:0 0 0 2px #4db3ff,0 0 14px #4db3ffaa!important;animation:none!important}
 
 .win{text-shadow:0 0 10px rgba(62,207,142,.5)}
 .win.lose{color:#ff2d2d;text-shadow:0 0 12px #ff2d2d,0 0 28px #b00000;animation:glow 1.6s ease-in-out infinite}
@@ -564,6 +568,22 @@ function drawSlots(){
     }).join('');
     DRAWN[id]=nowSig;
   }
+  markTargets();
+}
+// Подсветка цели ухудшения перед подтверждением. Считается из состояния (debSel, slotSel),
+// поэтому не теряется при перерисовке слотов.
+// Свои карты подсвечиваются, если ухудшение касается твоих бойцов (self);
+// карты соперника — все (all), либо только выбранная (sel).
+function markTargets(){
+  const live=stage==='deb'&&!myDeb&&debSel>=0&&debTurn()==='me';
+  const D=live?DB[debSel]:null;
+  $('cMe').querySelectorAll('.slot').forEach(x=>x.classList.toggle('hl-me',!!(D&&D.self)));
+  $('cOpp').querySelectorAll('.slot').forEach(x=>{
+    const everyone=!!(D&&D.all&&AFF(D));
+    const one=!!(D&&!D.all&&AFF(D)&&slotSel>0&&+x.dataset.i===slotSel);
+    x.classList.toggle('hl-opp',everyone);
+    x.classList.toggle('sel',one);
+  });
 }
 const rnd=()=>Math.floor(Math.random()*CH.length);
 // ===== Режимы: arcade — карты выпадают случайно; real — взятая карта больше не выпадает сопернику =====
@@ -685,6 +705,7 @@ function update(){
       $('cOpp').classList.toggle('pick',dt==='me');
       if(dt==='me'){stgOff('dbWait');stgOn('dbPick')}else{stgOff('dbPick');stgOn('dbWait')}
       setMsg('');
+      markTargets();
     }else toSpin();
     return;
   }
@@ -850,12 +871,13 @@ async function startGame(){
   drawSlots();idleStrip();
   $('dbGrid').innerHTML=DB.map((d,i)=>`<button class="dbtn t${Math.floor(i/3)}" data-k="${i}"><span>${d.e}</span><b>${d.n}</b></button>`).join('');
   const chk=()=>{$('dbOk').disabled=!(debSel>=0&&(DB[debSel].all||slotSel>0))};
-  $('dbGrid').querySelectorAll('button').forEach(b=>b.onclick=()=>{if(lock)return;debSel=+b.dataset.k;$('dbHint').textContent=DB[debSel].txt+(DB[debSel].all?'':' · нажми слот соперника ➜');$('dbGrid').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));chk()});
+  $('dbGrid').querySelectorAll('button').forEach(b=>b.onclick=()=>{if(lock)return;debSel=+b.dataset.k;$('dbHint').textContent=DB[debSel].txt+(DB[debSel].all?'':' · нажми слот соперника ➜');$('dbGrid').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));chk();markTargets()});
   $('cOpp').onclick=e=>{
     const el=e.target.closest('.slot');
     if(!el||lock||stage!=='deb'||debTurn()!=='me')return;
     slotSel=+el.dataset.i;
-    $('cOpp').querySelectorAll('.slot').forEach(x=>x.classList.toggle('sel',x===el));chk();
+    if(debSel>=0)$('dbHint').textContent=DB[debSel].txt+' · цель: карта '+slotSel;
+    chk();markTargets();
   };
   $('dbOk').onclick=()=>{
     if(lock||stage!=='deb'||debTurn()!=='me')return;
