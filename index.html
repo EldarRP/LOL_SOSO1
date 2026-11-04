@@ -237,7 +237,7 @@ textarea.in{resize:none;font-family:inherit}
     <button class="btn sec" id="aGuest">Играть без аккаунта</button>
   </div>
   <div id="home" class="hide">
-    <div id="retBox" style="display:none;margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--card);border:1px solid var(--ac);flex-direction:column;gap:6px"><div id="retSub" class="pw" style="margin:0"></div><div style="display:flex;gap:8px;align-items:center"><button class="btn" id="retGo" style="margin:0;flex:1;padding:10px;font-size:13px">⚔ Вернуться в бой</button><button class="dbtn" id="retX" style="padding:8px 12px" aria-label="Выйти из боя">✕</button></div></div>
+    <div id="retWrap" style="display:none;overflow:hidden;max-height:200px;margin-bottom:12px;transition:max-height .35s ease,margin-bottom .35s ease"><div id="retBox" style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:8px;background:var(--card);border:1px solid var(--ac);opacity:1;transform:translateX(0);transition:transform .35s ease,opacity .35s ease"><div id="retSub" class="pw" style="margin:0"></div><div style="display:flex;gap:8px;align-items:center"><button class="btn" id="retGo" style="margin:0;flex:1;padding:10px;font-size:13px">⚔ Вернуться в бой</button><button class="dbtn" id="retX" style="padding:8px 12px" aria-label="Выйти из боя">✕</button></div><div style="height:3px;border-radius:3px;overflow:hidden;background:#0002"><div id="retBar" style="height:100%;background:var(--ac);transform-origin:left;transform:scaleX(1)"></div></div></div></div>
     <div id="gName"><input class="in" id="nameIn" maxlength="16" placeholder="Твоё имя"></div>
     <div id="acc" class="hide"><div id="hiNick" style="font-weight:800;font-size:20px"></div><div id="hiStat" class="pw"></div></div>
     <button class="btn" id="start">Начать играть</button>
@@ -402,6 +402,9 @@ function loadPlayerId(){
   }catch(e){return fresh()}
 }
 const ME={id:loadPlayerId(),name:'Пони-'+Math.floor(100+Math.random()*900)};
+// Токен вкладки: часть ключа снимка боя в localStorage. Перезагрузка вкладки его сохраняет, новая вкладка получает новый.
+function tabToken(){try{let t=sessionStorage.getItem('mlptab');if(!t){t=Math.random().toString(36).slice(2,10);sessionStorage.setItem('mlptab',t)}return t}catch(e){return Math.random().toString(36).slice(2,10)}}
+let TAB=tabToken();
 let subbed=0,L=null,G=null,roomName='',opp=null,joining=false,searching=false;
 let myCards=[],shown={me:[],opp:[]},animating=false,coinDone=false,battleStarted=false,story='',storyAsked=false,gone=false;
 const hash=s=>{let h=7;for(const c of s)h=(h*31+c.charCodeAt(0))>>>0;return h};
@@ -847,19 +850,21 @@ const pub=(t,o,retain)=>cli&&cli.publish(P+t,o===''?'':JSON.stringify(o),{retain
 // Снимок пишется только во время боя и удаляется при окончании боя или выходе.
 // Сколько моих карт уже обработано счётчиком комбо: при возврате последнее действие проигрывается заново, но комбо второй раз не засчитывается
 let ccDone=0;
-const SNAP_KEY='mlpsnap';
+// Снимок боя хранится в localStorage (переживает перезагрузку и закрытие браузера), ключ — по токену вкладки.
+const SNAP_PREFIX='mlpsnap:';
+function snapKey(){return SNAP_PREFIX+TAB}
 function snapSave(){
   if(!matchLive||finished||!sid){snapClear();return}
   try{
-    sessionStorage.setItem(SNAP_KEY,JSON.stringify({
-      t:Date.now(),
+    localStorage.setItem(snapKey(),JSON.stringify({
+      t:Date.now(),tab:TAB,
       sid,baseRoom,round,roomName,mode:MODE,stage,cc:ccDone,
       me:{id:ME.id,name:ME.name,uid:(me&&me.uid)||'',cards:myCards,deb:myDeb},
       opp:{id:oppId,name:(opp&&opp.name)||'',uid:(opp&&opp.uid)||''}
     }));
   }catch(e){}
 }
-function snapClear(){try{sessionStorage.removeItem(SNAP_KEY)}catch(e){}}
+function snapClear(){try{localStorage.removeItem(snapKey())}catch(e){}}
 G={presence:patch=>{Object.assign(myState,patch);pub('g/'+sid+'/p/'+ME.id,myState,true);snapSave()}};
 const myWill=()=>({topic:P+'g/'+sid+'/p/'+ME.id,payload:'',retain:true});
 // Пустой статус (Will брокера) не даёт победу сразу: соперник мог просто потерять связь. Ждём OPP_GRACE на возврат.
@@ -1046,9 +1051,29 @@ function countCombo(n){
 
 
 // ===== Возврат в бой после перезагрузки страницы =====
-// Окно возврата: соперник узнаёт о разрыве не раньше чем через ~30 с (брокер ждёт keepalive) и ждёт ещё OPP_GRACE.
-const RETURN_WINDOW=OPP_GRACE+30000;
-let retSnap=null,retPres=null,resumeSnap=null,resumeTimer=null,oppWaitTick=null;
+// Окно возврата = OPP_GRACE, отсчёт от выхода. При закрытии страницы брокер сразу видит обрыв и соперник начинает свои 15 с тоже сразу.
+const RET_WAIT=800;
+// Снимок хранится дольше окна возврата, чтобы вернувшийся после 15 с узнал итог боя (если соперник успел его записать)
+const DECIDED_WINDOW=120000;
+let retSnap=null,retPres=null,resumeSnap=null,resumeTimer=null,oppWaitTick=null,retTimer=null;
+// Живые вкладки отвечают на вопрос «кто сейчас в бою», чтобы не забрать снимок чужого открытого боя
+const MATCH_CH=typeof BroadcastChannel!=='undefined'?new BroadcastChannel('mla-match'):null;
+if(MATCH_CH)MATCH_CH.addEventListener('message',e=>{if(e.data&&e.data.t==='who'&&matchLive&&ME.id)MATCH_CH.postMessage({t:'here',id:ME.id})});
+function whoIsLive(ms){
+  return new Promise(res=>{
+    const ids=new Set();
+    if(!MATCH_CH)return res(ids);
+    const h=e=>{if(e.data&&e.data.t==='here')ids.add(e.data.id)};
+    MATCH_CH.addEventListener('message',h);
+    MATCH_CH.postMessage({t:'who'});
+    setTimeout(()=>{MATCH_CH.removeEventListener('message',h);res(ids)},ms);
+  });
+}
+// Забираем ID и вкладку прежнего боя, чтобы соперник видел того же игрока
+function adoptSnap(s){
+  TAB=s.tab||TAB;try{sessionStorage.setItem('mlptab',TAB)}catch(e){}
+  if(s.me.id&&s.me.id!==ME.id){ME.id=s.me.id;myState.id=ME.id;try{sessionStorage.setItem('mlpid',ME.id)}catch(e){}}
+}
 // Отсчёт у соперника, пока игрок переподключается
 function oppWaitShow(until){
   stopOppWait();
@@ -1056,13 +1081,35 @@ function oppWaitShow(until){
   tick();oppWaitTick=setInterval(tick,500);
 }
 function stopOppWait(){if(oppWaitTick){clearInterval(oppWaitTick);oppWaitTick=null}}
-function snapRead(){try{return JSON.parse(sessionStorage.getItem(SNAP_KEY)||'null')}catch(e){return null}}
+function snapRead(){try{return JSON.parse(localStorage.getItem(snapKey())||'null')}catch(e){return null}}
 // При перезагрузке время снимка обновляется: окно возврата считается от момента выхода
-addEventListener('pagehide',()=>{const s=snapRead();if(s){s.t=Date.now();try{sessionStorage.setItem(SNAP_KEY,JSON.stringify(s))}catch(e){}}});
+// При закрытии или перезагрузке запоминаем момент выхода: от него идут 15 с
+addEventListener('pagehide',()=>{const s=snapRead();if(s){s.x=Date.now();try{localStorage.setItem(snapKey(),JSON.stringify(s))}catch(e){}}});
 // Пока идёт бой, время снимка обновляется само: на телефонах pagehide срабатывает не всегда
 setInterval(()=>{if(matchLive&&!finished&&sid)snapSave()},10000);
-function showRetBox(){const el=$('retBox');el.style.display='flex';el.classList.remove('fadein');void el.offsetWidth;el.classList.add('fadein')}
-function hideRetBox(){$('retBox').style.display='none'}
+// Плашка: плавно появляется, полоска показывает оставшиеся секунды
+function showRetBox(left){
+  const wrap=$('retWrap'),box=$('retBox'),bar=$('retBar');
+  wrap.style.display='block';wrap.style.maxHeight='0px';wrap.style.marginBottom='0px';
+  box.style.transform='translateX(0)';box.style.opacity='1';
+  bar.style.transition='none';bar.style.transform='scaleX(1)';
+  void wrap.offsetHeight;
+  wrap.style.maxHeight='200px';wrap.style.marginBottom='12px';
+  void bar.offsetWidth;
+  bar.style.transition='transform '+left+'ms linear';bar.style.transform='scaleX(0)';
+  clearTimeout(retTimer);retTimer=setTimeout(hideRetSwipe,left);
+}
+// Уход в бой или крестик: прячем сразу
+function hideRetBox(){clearTimeout(retTimer);retTimer=null;$('retWrap').style.display='none'}
+// Время вышло: плашка уезжает вправо, остальной экран плавно поднимается на место
+function hideRetSwipe(){
+  retTimer=null;
+  const wrap=$('retWrap'),box=$('retBox');
+  box.style.transform='translateX(120%)';box.style.opacity='0';
+  setTimeout(()=>{wrap.style.maxHeight='0px';wrap.style.marginBottom='0px'},360);
+  setTimeout(()=>{if(retTimer===null)wrap.style.display='none'},760);
+  snapClear();retSnap=null;retPres=null;
+}
 // Результат, который уже записал соперник (поле over в его статусе): свою часть засчитываем по правилам
 function applyDecided(pr){
   snapClear();
@@ -1121,11 +1168,31 @@ async function resumeMatch(snap){
   G.presence({});
   resumeTimer=setTimeout(()=>{resumeTimer=null;if(resumeSnap)resumeFail('Соперник уже не в бою — результат не засчитан')},8000);
 }
-// Проверка при загрузке: плашку показываем, только если снимок свежий и соперник ещё в бою
+// Проверка при загрузке: ищем снимки боя в localStorage (своей вкладки или закрытого браузера).
+// Плашку показываем, только если выход был не раньше OPP_GRACE назад, бой не идёт в открытой вкладке и соперник ещё в бою.
 async function checkReturn(){
-  const snap=snapRead();
-  if(!snap)return;
-  if(!snap.me||!snap.opp||!snap.opp.id||snap.me.id!==ME.id||Date.now()-snap.t>RETURN_WINDOW){snapClear();return}
+  const keys=[];
+  try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith(SNAP_PREFIX))keys.push(k)}}catch(e){return}
+  const cands=[];
+  for(const k of keys){
+    let s=null;try{s=JSON.parse(localStorage.getItem(k))}catch(e){}
+    if(!s||!s.me||!s.opp||!s.opp.id){try{localStorage.removeItem(k)}catch(e){}continue}
+    cands.push({k,s});
+  }
+  if(!cands.length)return;
+  const live=await whoIsLive(RET_WAIT);
+  if(matchLive||sid)return;
+  const now=Date.now();
+  let pick=null;
+  for(const c of cands){
+    if(live.has(c.s.me.id))continue;                                  // бой идёт в открытой вкладке — не трогаем
+    const exitAt=c.s.x||c.s.t;
+    if(now-exitAt>DECIDED_WINDOW){try{localStorage.removeItem(c.k)}catch(e){}continue}
+    if(!pick||exitAt>(pick.s.x||pick.s.t))pick=c;
+  }
+  if(!pick)return;
+  adoptSnap(pick.s);
+  const snap=pick.s,exitAt=snap.x||snap.t;
   let c;try{c=await connect()}catch(e){return}
   const topic=P+'g/'+snap.sid+'/p/'+snap.opp.id;
   const pres=await new Promise(res=>{
@@ -1135,11 +1202,12 @@ async function checkReturn(){
   });
   try{c.end(true)}catch(e){}
   if(matchLive||sid)return;
-  if(!pres){snapClear();return}
-  if(pres.over===snap.round){err(applyDecided(pres));return}
+  if(pres&&pres.over===snap.round){err(applyDecided(pres));return}   // бой уже завершён: записываем итог даже после окна
+  const left=OPP_GRACE-(Date.now()-exitAt);
+  if(!pres||left<=0){snapClear();return}                              // соперник вышел или окно возврата прошло
   retSnap=snap;retPres=pres;
   $('retSub').textContent='Бой с '+(snap.opp.name||'соперником')+' не завершён';
-  showRetBox();
+  showRetBox(left);
 }
 // Крестик на плашке: тот же результат, что и у крестика в бою
 async function dismissReturn(){
