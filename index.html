@@ -46,7 +46,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 @keyframes bob{50%{transform:translateY(-14px) rotate(8deg)}}
 .vs{position:absolute;top:70px;left:0;right:0;text-align:center;font-weight:900;font-size:26px;color:#fff;text-shadow:0 2px 6px #0006;z-index:2}
 .msg{text-align:center;margin:12px 0 4px;font-weight:700;min-height:22px}
-.story{margin-top:10px;text-align:left;line-height:1.5;font-size:15px}
+
 .win{font-size:20px;font-weight:800;text-align:center;margin:8px 0;color:var(--ok)}
 .dots:after{content:"";animation:d 1.2s steps(4) infinite}@keyframes d{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 .pw{font-size:12px;color:var(--mut);text-align:center;margin-top:6px}
@@ -315,7 +315,7 @@ textarea.in{resize:none;font-family:inherit}
   <div class="msg" id="msg"></div>
   <button class="btn sec hide" id="quit">Выйти из боя (поражение)</button>
   <button class="btn hide" id="spin">Крутить рулетку</button>
-  <div class="panel hide" id="res"><div class="win" id="winTxt"></div><div class="pw" id="pwTxt"></div><div class="story" id="story"></div></div>
+  <div class="panel hide" id="res"><div class="win" id="winTxt"></div><div class="pw" id="pwTxt"></div></div>
   <button class="btn hide" id="again">Играть снова</button>
   <button class="btn sec hide" id="toMenu">Выйти в меню</button>
 </div>
@@ -406,7 +406,7 @@ const ME={id:loadPlayerId(),name:'Пони-'+Math.floor(100+Math.random()*900)};
 function tabToken(){try{let t=sessionStorage.getItem('mlptab');if(!t){t=Math.random().toString(36).slice(2,10);sessionStorage.setItem('mlptab',t)}return t}catch(e){return Math.random().toString(36).slice(2,10)}}
 let TAB=tabToken();
 let subbed=0,L=null,G=null,roomName='',opp=null,joining=false,searching=false;
-let myCards=[],shown={me:[],opp:[]},animating=false,coinDone=false,battleStarted=false,story='',storyAsked=false,gone=false;
+let myCards=[],shown={me:[],opp:[]},animating=false,coinDone=false,battleStarted=false,gone=false;
 const hash=s=>{let h=7;for(const c of s)h=(h*31+c.charCodeAt(0))>>>0;return h};
 
 const face=(i,sz)=>{const x=chr(i);return `<div class="ph" style="width:${sz}px;height:${sz}px"><span>${x.e}</span><img src="${PHOTOS[x.id]||'img/'+x.id+'.jpg'}" alt="" onerror="if(!this.dataset.t){this.dataset.t=1;this.src='img/${x.id}.png'}else{this.remove()}"></div>`};
@@ -570,7 +570,7 @@ function update(){
     }else toSpin();
     return;
   }
-  if(stage==='battle'){showStory();return}
+  if(stage==='battle')return;
   if(stage!=='spin')return;
   if(!animating){
     // показать следующую карту
@@ -579,7 +579,7 @@ function update(){
   }
   const allShown=!animating&&fill(shown.me)===nMe()&&fill(shown.opp)===nOp();
   if(allShown&&!battleStarted){battle();return}
-  if(battleStarted){showStory();return}
+  if(battleStarted)return;
   const mine=myTurn()&&shown.me.length===myCards.length&&shown.opp.length===oc.length;
   $('pMe').classList.toggle('turn',mine&&!animating);$('pOpp').classList.toggle('turn',!mine&&!animating);
   $('spin').classList.toggle('hide',!(mine&&fill(myCards)<nMe()));
@@ -632,36 +632,23 @@ $('spin').onclick=()=>{
 
 // ===== Бой =====
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-let fieldReady=false,finished=false,pendingStory='',meWin=false,sa=0,sb=0;
+let finished=false,meWin=false,sa=0,sb=0;
 async function battle0(ep){
   battleStarted=true;
   $('spin').classList.add('hide');$('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
   {const r=calc();sa=r.sa;sb=r.sb}
   meWin=sa>sb||(sa===sb&&ME.id<opp.id);
-  if(ME.id===ids()[0])askStory(ep);
-  else setTimeout(()=>{if(ep===epoch)finish('Волны улеглись: победила команда, которая оказалась сильнее.')},30000);
   setMsg('Все карты выбраны');
   await wk(ep,2000);
   stage='battle';stgOff('wheelWrap');snapSave();
   await wk(ep,1100);
   stgOn('water');
-  setMsg('Идёт бой — ИИ размышляет<span class="dots"></span>');
+  setMsg('Идёт бой<span class="dots"></span>');
   await wk(ep,2500);
-  fieldReady=true;
-  if(pendingStory)finish(pendingStory);
+  finish();
 }
-async function askStory(ep){
-  const nm=side=>idx(side).map(i=>{const e=effOf(side,i);return chr(e.c).n+(e.combo?' [злодейский союз +4/+2/+3]':'')+(e.c===FUSID?' [Твайлайт и подруги объединились]':'')+(e.c===FUSID2?' [Эпл Блум, Скуталу и Свити Белл объединились в Трио Друзей]':'')+(e.c===FUSID3?' [Эпплджек, Эпл Блум и Бабуля Смит объединились в Семью Эплов]':'')+' (атака '+e.a+', тактика '+e.t+', защита '+e.d+(e.deb?', ухудшение «'+e.deb.n+'»':'')+(e.blocked?', выбыл из боя':'')+')'}).join('; ');
-  const wn=side=>idx(side).map(i=>chr(effOf(side,i).c).n).join(', ');
-  const prompt=`Ты рассказчик в игре по «My Little Pony». Бой в воде.\nКоманда A: ${nm('me')}.\nКоманда B: ${nm('opp')}.\nНанесённый урон: A — ${sa.toFixed(1)}, B — ${sb.toFixed(1)}. Победила команда ${meWin?'A':'B'}. Коротко (2–3 предложения, по-русски) опиши, как проходил бой, учитывая атаку, тактику, защиту и ухудшения. Без заголовков и списков.`;
-  let t='';
-  try{const S=await claude.use('sample');if(S){const r=await S(prompt);t=(r.text||'').trim()}}catch(e){}
-  if(!t)t=`${wn(meWin?'me':'opp')} прорвали защиту ${wn(meWin?'opp':'me')} и выиграли бой в воде. (Заглушка: ИИ-рассказчик недоступен.)`;
-  if(ep!==epoch)return;t=t.slice(0,700);G.presence({story:t});finish(t);
-}
-function finish(t){
+function finish(){
   if(finished)return;
-  if(!fieldReady){pendingStory=t;return}
   finished=true;G.presence({over:round,c:1,w:meWin?ME.id:oppId});endMatch();
   setMsg('');
   pop($('res'));
@@ -670,10 +657,7 @@ function finish(t){
   $('winTxt').textContent=(meWin?'🏆 Победа! ':'💔 Поражение. ')+(meWin?ME.name:opp.name)+' побеждает';
   $('pwTxt').innerHTML=`Урон: ты ${sa.toFixed(1)} · соперник ${sb.toFixed(1)}<br>Ты: ⚔${TS.m.A} 🧠${TS.m.T} 🛡${TS.m.D} · Соперник: ⚔${TS.o.A} 🧠${TS.o.T} 🛡${TS.o.D}`;
   rematchUI();
-  let i=0;const el=$('story');
-  const tm=setInterval(()=>{i+=3;el.textContent=t.slice(0,i);if(i>=t.length)clearInterval(tm)},25);
 }
-function showStory(){const s=(opp&&opp.story)||'';if(s)finish(s)}
 
 // ===== Сеть: подбор и комната =====
 function onOpp(p){
@@ -683,7 +667,7 @@ function onOpp(p){
   if(opp&&opp.id&&finished&&!gone&&!oppLeft&&myState.rm===1&&(opp.rd||0)===round+1){
     const np={...opp};newRound();
     // newRound() обнуляет данные соперника — возвращаем то, что он уже успел выбрать в новом раунде
-    opp.cards=np.cards||[];opp.deb=np.deb||null;opp.story=np.story||null;
+    opp.cards=np.cards||[];opp.deb=np.deb||null;
     update();return
   }
   if(opp&&opp.id&&(opp.rd||0)!==round)opp={id:opp.id,name:opp.name,uid:opp.uid,cards:[],rd:opp.rd||0,rm:0};
@@ -740,18 +724,18 @@ $('toMenu').onclick=()=>leaveGame();
 function newRound(){
   epoch++;round++;if(!baseRoom)baseRoom=roomName;roomName=baseRoom+'#'+round;
   myCards=[];shown={me:[],opp:[]};animating=false;OV=null;FZ=[];FN=-1;HL=[];coinDone=false;battleStarted=false;gone=false;
-  fieldReady=false;finished=false;pendingStory='';story='';meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
+  finished=false;meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
   stage='init';lock=true;
-  opp.cards=[];opp.deb=null;opp.story=null;opp.rm=0;
+  opp.cards=[];opp.deb=null;opp.rm=0;
   ['water','wheelWrap','cMe','cOpp','dbPick','dbWait','coinBox'].forEach(stgOff);
   $('cOpp').classList.remove('pick');
   $('coinBox').firstChild.classList.remove('go');void $('coinBox').offsetWidth;
   ['res','again','toMenu'].forEach(i=>$(i).classList.add('hide'));
-  $('story').textContent='';$('winTxt').textContent='';$('pwTxt').textContent='';$('wlab').textContent='';
+  $('winTxt').textContent='';$('pwTxt').textContent='';$('wlab').textContent='';
   $('dbOk').disabled=true;$('dbGrid').querySelectorAll('.on').forEach(x=>x.classList.remove('on'));$('dbHint').textContent='Выбери ухудшение';
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
   setMsg('');drawSlots();
-  G.presence({cards:[],deb:null,story:null,rm:0,rd:round});
+  G.presence({cards:[],deb:null,rm:0,rd:round});
   beginMatch();
   flow();
 }
@@ -1030,7 +1014,7 @@ function forfeitWin(counted){
     $('winTxt').textContent='🚪 Соперник вышел из боя';
     $('pwTxt').textContent='Ухудшения ещё не были выбраны — победа и поражение не засчитываются';
   }
-  $('story').textContent='';
+  
   $('spin').classList.add('hide');
   rematchUI();
 }
@@ -1154,7 +1138,7 @@ async function resumeMatch(snap){
   sid=snap.sid;baseRoom=snap.baseRoom||'';round=snap.round||0;roomName=snap.roomName||sid;
   MODE=snap.mode==='real'?'real':'arcade';oppId=snap.opp.id;
   myCards=Array.isArray(snap.me.cards)?snap.me.cards:[];myDeb=snap.me.deb||null;
-  Object.assign(myState,{cards:myCards,deb:myDeb,rd:round,rm:0,story:null,uid:me?me.uid:''});
+  Object.assign(myState,{cards:myCards,deb:myDeb,rd:round,rm:0,uid:me?me.uid:''});
   resumeSnap=snap;waitBack='home';
   show('waitBox');$('waitTxt').innerHTML='Возвращаемся в бой<span class="dots"></span>';
   try{cli=await connect(myWill())}catch(e){resumeFail('Нет связи: '+e.message);return}
@@ -1550,14 +1534,14 @@ function leaveGame(){
   cli=null;clearInterval(hb);sid='';oppId='';roomName='';
   try{if(curInvite){curInvite.off();curInvite.remove()}}catch(e){}curInvite=null;
   myCards=[];shown={me:[],opp:[]};animating=false;OV=null;FZ=[];FN=-1;HL=[];coinDone=false;battleStarted=false;gone=false;
-  fieldReady=false;finished=false;pendingStory='';story='';meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
+  finished=false;meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
   stage='init';lock=true;round=0;baseRoom='';oppLeft=false;opp=null;joining=false;
   myState={id:ME.id,name:ME.name,cards:[],uid:me?me.uid:''};
   delete $('game').dataset.s;
   ['water','wheelWrap','cMe','cOpp','dbPick','dbWait','coinBox'].forEach(stgOff);
   $('cOpp').classList.remove('pick');$('coinBox').firstChild.classList.remove('go');
   ['res','again','toMenu','spin'].forEach(i=>$(i).classList.add('hide'));
-  $('story').textContent='';$('winTxt').textContent='';$('pwTxt').textContent='';$('wlab').textContent='';
+  $('winTxt').textContent='';$('pwTxt').textContent='';$('wlab').textContent='';
   $('dbOk').disabled=true;$('dbGrid').querySelectorAll('.on').forEach(x=>x.classList.remove('on'));
   $('dbHint').textContent='Выбери ухудшение';
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');setMsg('');
