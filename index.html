@@ -599,6 +599,11 @@ function effOf(side,i,sh){
   return {...st,deb,blocked,c,combo,inc};
 }
 function cardInner(c){const x=chr(c);return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${stat(x.a,x.a,'⚔')} ${stat(x.t,x.t,'🧠')} ${stat(x.d,x.d,'🛡')}</div>`}
+function cardInnerPen(c,T){
+  const x=chr(c),d=T==='me'?myDeb:(opp&&opp.deb),pen=(d&&DB[d.k]&&DB[d.k].self)||{};
+  const v=k=>Math.max(0,x[k]+(pen[k]||0));
+  return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${stat(v('a'),x.a,'⚔')} ${stat(v('t'),x.t,'🧠')} ${stat(v('d'),x.d,'🛡')}</div><div class="bd" style="color:var(--ok)">🦹 похищен</div>`;
+}
 function cardHtml(side,i){
   const e=effOf(side,i,1),c=e.c,x=chr(c);
   const tag=e.inc?'<div class="bd" style="color:var(--ok)">🦹 похищен</div>':e.blocked?'<div class="bd">'+e.deb.e+' выбыл</div>':(e.deb?`<div class="bd">${e.deb.e} ${e.deb.n}</div>`:(e.combo?'<div class="bd" style="color:var(--ok)">🦹 союз</div>':(c<0?'<div class="bd" style="color:#ffe066">✨ комбо</div>':'')));
@@ -624,12 +629,21 @@ function drawSlots(){
     // где сейчас стоит каждая карта: по ключу самой карты, а не по номеру слота
     const was=new Map();
     host.querySelectorAll('[data-key]').forEach(el=>{if(el.offsetHeight)was.set(el.dataset.key,layTop(el))});
-    const arr=layS(side);
+    let arr=layS(side);
+    // Украденная карта, пока вор ещё вытягивает свои: стоит внизу колонки (туда же она летит), а не прыгает на первое свободное место.
+    // Если она уже участвует в слиянии, показываем обычную раскладку.
+    let pend=[];
+    if(rv()&&!revealDone(side)&&landDone(side==='me'?'opp':'me')&&!(OV&&OV.side===side)){
+      const RA=layX2(seqDisp(side));
+      if(!RA.ev.some(e=>String(e.tok)[0]==='i')){
+        arr=layX2(seqDisp(side).filter(e=>e.t[0]==='o')).s;
+        pend=inboxOf(side);
+      }
+    }
     const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
     // украденная карта уже ушла из слота жертвы: под неё место не держим
     const gone=(rv()&&landDone(side))?removedOf(side).size:0;
     // украденная карта уже у вора, а его собственные карты ещё вытягиваются: показываем её сразу, последней в колонке
-    const pend=[]; // украденная карта уже в раскладке вора (см. seqDisp)
     const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):3;
     const n=base+pend.length+(STL.flying===side?1:0);
     const prev=DRAWN[id],now={},occ={},sd=side==='me'?'m':'o';
@@ -645,7 +659,7 @@ function drawSlots(){
         occ[c]=(occ[c]||0)+1;
         const key=side+'|'+c+'|'+occ[c];
         now[key]='';
-        return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(c)}${prev[key]!==undefined?' still':' land'}">${cardInner(c)}<div class="bd" style="color:var(--ok)">🦹 похищен</div></div>`;
+        return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(c)}${prev[key]!==undefined?' still':' land'}">${cardInnerPen(c,side)}</div>`;
       }
       const cI=i<arr.length?arr[i]:null;
       if(cI!=null){
@@ -851,7 +865,8 @@ async function stealFly(V,l){
   const g=document.createElement('div');
   g.className='slot f ghost r'+rar(val);
   g.style.cssText=`position:fixed;left:${a.left}px;top:${a.top}px;width:${a.width}px;height:${a.height}px;margin:0;z-index:80;pointer-events:none;overflow:hidden`;
-  g.innerHTML=cardInner(val);
+  // штрафы вора («Ты: все бойцы −1 ко всему») ложатся на карту сразу, пока она летит, а не после приземления
+  g.innerHTML=cardInnerPen(val,T);
   document.body.appendChild(g);
   const dx=b.left-a.left,dy=b.top-a.top;
   $('wlab').textContent='🦹 '+chr(val).n+' переходит к '+(T==='me'?'тебе':'сопернику');
