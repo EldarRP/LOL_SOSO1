@@ -596,7 +596,7 @@ async function reveal(side,card){
     const R=layX(shown[side]),post=R.s,evs=R.ev.filter(e=>e.k===shown[side].length-1);
     const vilNow=VIL.every(v=>post.includes(v))&&!VIL.every(v=>prev.includes(v));
     const x=CH[card];
-    if(side==='me'&&(evs.length||vilNow))countCombo(evs.length+(vilNow?1:0));
+    if(side==='me'){const k=shown.me.length-1;if(k>=ccDone){if(evs.length||vilNow)countCombo(evs.length+(vilNow?1:0));ccDone=k+1;snapSave()}}
     if(evs.length){
       for(const e of evs){
         const fx=chr(e.id);
@@ -718,7 +718,7 @@ async function startGame(){
   };
   beginMatch();
   const rs=resumeSnap;resumeSnap=null;clearTimeout(resumeTimer);resumeTimer=null;
-  if(rs)resumeStage(rs.stage);else flow();
+  if(rs){ccDone=rs.cc||0;resumeStage(rs.stage)}else flow();
 }
 let round=0,baseRoom='',oppLeft=false;
 function rematchUI(){
@@ -845,13 +845,15 @@ const pub=(t,o,retain)=>cli&&cli.publish(P+t,o===''?'':JSON.stringify(o),{retain
 // ===== Снимок боя в sessionStorage (для возврата в бой после перезагрузки) =====
 // Брокер стирает наш статус при обрыве, поэтому свои карты и ухудшения сохраняем у себя.
 // Снимок пишется только во время боя и удаляется при окончании боя или выходе.
+// Сколько моих карт уже обработано счётчиком комбо: при возврате последнее действие проигрывается заново, но комбо второй раз не засчитывается
+let ccDone=0;
 const SNAP_KEY='mlpsnap';
 function snapSave(){
   if(!matchLive||finished||!sid){snapClear();return}
   try{
     sessionStorage.setItem(SNAP_KEY,JSON.stringify({
       t:Date.now(),
-      sid,baseRoom,round,roomName,mode:MODE,stage,
+      sid,baseRoom,round,roomName,mode:MODE,stage,cc:ccDone,
       me:{id:ME.id,name:ME.name,uid:(me&&me.uid)||'',cards:myCards,deb:myDeb},
       opp:{id:oppId,name:(opp&&opp.name)||'',uid:(opp&&opp.uid)||''}
     }));
@@ -991,7 +993,7 @@ function unwatchOpp(){
   oppFbRef=null;oppFbCb=null;
 }
 function beginMatch(){
-  matchLive=true;snapSave();
+  matchLive=true;ccDone=0;snapSave();
   if(me)myState.uid=me.uid;
   watchOpp();
   $('quit').classList.remove('hide');
@@ -1073,8 +1075,20 @@ function resumeStage(st){
   coinDone=true;lock=false;
   stgOn('cMe');stgOn('cOpp');
   if(st==='trans'||st==='deb'){stage='deb';if(myDeb)$('dbOk').disabled=true}
-  else{stage='spin';battleStarted=false;stgOn('wheelWrap')}   // spin и battle: карты открываются заново, бой пересчитается
+  else{stage='spin';battleStarted=false;stgOn('wheelWrap');prefillShown()}   // spin и battle: прошлые карты сразу на местах
   update();
+}
+// Все прошлые карты ставим на места сразу, без анимации. Заново проигрывается только последнее действие:
+// порядок ходов — сначала все карты первого игрока, затем второго, поэтому последним считается последний выпавший по этому порядку.
+// Если выложены все карты, остаётся только бой — он и проигрывается.
+function prefillShown(){
+  const oc=(opp&&opp.cards)||[];
+  const seq=firstId()===ME.id?[['me',myCards],['opp',oc]]:[['opp',oc],['me',myCards]];
+  shown={me:myCards.slice(),opp:oc.slice()};
+  const allDone=fill(myCards)>=nMe()&&fill(oc)>=nOp();
+  if(!allDone){let last=null;for(const [sd,arr] of seq)if(arr.length)last=sd;if(last)shown[last].pop()}
+  OV=null;FZ=[];FN=-1;HL=[];
+  drawSlots();drawSlots();   // второй вызов помечает слоты «уже стоят» — без появления с эффектом
 }
 function resumeFail(msg){
   clearTimeout(resumeTimer);resumeTimer=null;resumeSnap=null;
