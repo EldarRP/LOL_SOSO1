@@ -595,23 +595,45 @@ function cardHtml(side,i){
   return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${e.blocked?'не в бою':stat(e.a,x.a,'⚔')+' '+stat(e.t,x.t,'🧠')+' '+stat(e.d,x.d,'🛡')}</div>${tag}`;
 }
 const rv=()=>stage==='trans'||stage==='spin'||stage==='battle';
-const DRAWN={cMe:[],cOpp:[]};
+const DRAWN={cMe:{},cOpp:{}};
 function drawSlots(){
   for(const [id,side] of [['cMe','me'],['cOpp','opp']]){
+    const host=$(id);
+    // где сейчас стоит каждая карта: по ключу самой карты, а не по номеру слота
+    const was=new Map();
+    host.querySelectorAll('[data-key]').forEach(el=>{const r=el.getBoundingClientRect();if(r.height)was.set(el.dataset.key,r.top)});
     const arr=layS(side);
     const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
-    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side),arr.length)):3;
+    // украденная карта уже ушла из слота жертвы: под неё место не держим
+    const gone=(rv()&&landDone(side))?removedOf(side).size:0;
+    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):3;
     const n=base+(STL.flying===side?1:0);
-    const prevSig=DRAWN[id]||[],nowSig=[];
-    $(id).innerHTML=Array.from({length:n},(_,i)=>i).map(i=>{
+    const prev=DRAWN[id],now={},occ={},sd=side==='me'?'m':'o';
+    host.innerHTML=Array.from({length:n},(_,i)=>i).map(i=>{
       if(STL.flying===side&&i===n-1)return `<div class="slot incoming" data-i="${i+1}"></div>`;
       const cI=i<arr.length?arr[i]:null;
-      if(cI!=null){const dead=effOf(side,i,1).blocked;const sd=side==='me'?'m':'o';const f=(FZ.includes(sd+i)?'z'+FK:'')+(FN===sd+i?'n'+FK:'')+(HL.includes(sd+i)?'v':'');const pv=prevSig[i];const still=!!pv&&pv.c===cI&&(pv.f===f||f==='');nowSig[i]={c:cI,f};return `<div data-i="${i+1}" class="slot f r${rar(cI)}${still?' still':''}${dead?' dead':''}${cI<0?' fzc k'+(-cI):''}${FZ.includes(sd+i)?' fz k'+(-FK):''}${FN===sd+i?' fzn k'+(-FK):''}${HL.includes(sd+i)?' vil':''}">${cardHtml(side,i)}</div>`}
-      if(cI==null&&rv()&&revealDone(side))return '';
+      if(cI!=null){
+        occ[cI]=(occ[cI]||0)+1;
+        const key=side+'|'+cI+'|'+occ[cI];
+        const dead=effOf(side,i,1).blocked;
+        const f=(FZ.includes(sd+i)?'z'+FK:'')+(FN===sd+i?'n'+FK:'')+(HL.includes(sd+i)?'v':'');
+        const pv=prev[key];
+        const still=pv!==undefined&&(pv===f||f==='');
+        now[key]=f;
+        return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(cI)}${still?' still':''}${dead?' dead':''}${cI<0?' fzc k'+(-cI):''}${FZ.includes(sd+i)?' fz k'+(-FK):''}${FN===sd+i?' fzn k'+(-FK):''}${HL.includes(sd+i)?' vil':''}">${cardHtml(side,i)}</div>`;
+      }
+      if(rv()&&revealDone(side))return '';
       const hit=dd&&AFF(DB[dd.k])&&(DB[dd.k].all||dd.slot===i+1);
-      return `<div class="slot${hit&&DB[dd.k].block?' dead':''}" data-i="${i+1}"><div class="e" style="font-size:26px">?</div>карта ${i+1}${hit?`<div class="bd">${DB[dd.k].e} ${DB[dd.k].block?'выбыл':DB[dd.k].n}</div>`:''}</div>`;
+      return `<div class="slot${hit&&DB[dd.k].block?' dead':''}" data-i="${i+1}" data-key="${side}|ph|${i}"><div class="e" style="font-size:26px">?</div>карта ${i+1}${hit?`<div class="bd">${DB[dd.k].e} ${DB[dd.k].block?'выбыл':DB[dd.k].n}</div>`:''}</div>`;
     }).join('');
-    DRAWN[id]=nowSig;
+    DRAWN[id]=now;
+    // карты, которые только сдвинулись (например, вверх после ухода карты над ними), плавно доезжают до нового места
+    host.querySelectorAll('[data-key]').forEach(el=>{
+      const t=was.get(el.dataset.key);
+      if(t==null)return;
+      const dy=t-el.getBoundingClientRect().top;
+      if(Math.abs(dy)>1)el.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],{duration:450,easing:'cubic-bezier(.2,.7,.2,1)'});
+    });
   }
   markTargets();
 }
@@ -785,6 +807,7 @@ async function stealFly(V,l){
   STL.flying=T;
   drawSlots();
   const srcEl=$(V==='me'?'cMe':'cOpp').querySelector('.slot[data-i="'+(l.k+1)+'"]');
+  if(srcEl)srcEl.style.visibility='hidden'; // карта целиком уходит из слота: место пустое, пока она летит
   const dsts=$(T==='me'?'cMe':'cOpp').querySelectorAll('.slot');
   const dstEl=dsts[dsts.length-1];
   if(!srcEl||!dstEl||val==null){STL.flying=null;drawSlots();return}
