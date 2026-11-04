@@ -633,7 +633,11 @@ function drawSlots(){
     // Украденная карта, пока вор ещё вытягивает свои: стоит внизу колонки (туда же она летит), а не прыгает на первое свободное место.
     // Если она уже участвует в слиянии, показываем обычную раскладку.
     let pend=[];
-    if(rv()&&!revealDone(side)&&landDone(side==='me'?'opp':'me')&&!(OV&&OV.side===side)){
+    const thiefOf=side==='me'?'opp':'me';
+    if(rv()&&OV&&OV.side===side&&OV.steal&&landDone(thiefOf)){
+      // у этой стороны самой уже есть украденная карта, а сейчас у неё крадут: своя украденная стоит на месте, пока улетает чужая
+      pend=inboxOf(side);
+    }else if(rv()&&!revealDone(side)&&landDone(thiefOf)&&!(OV&&OV.side===side)){
       const RA=layX2(seqDisp(side));
       if(!RA.ev.some(e=>String(e.tok)[0]==='i')){
         arr=layX2(seqDisp(side).filter(e=>e.t[0]==='o')).s;
@@ -934,7 +938,7 @@ async function reveal(side,card){
       const preT=layX2(seqDisp(T)).s;
       const pre=layX2(shown[side].slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
       pre[land.k]=card;
-      OV={side,s:pre};
+      OV={side,s:pre,steal:1};
       drawSlots();
       await stealFly(side,land);ck();
       OV=null;
