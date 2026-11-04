@@ -92,6 +92,8 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 #cOpp .slot.sel::after{content:"🎯";position:absolute;top:-11px;right:-11px;font-size:15px;line-height:1;background:var(--ac);border-radius:50%;padding:3px;box-shadow:0 0 8px var(--ac);pointer-events:none}
 #cOpp .slot.hl-opp{border-style:solid!important;border-color:#ff6b6b!important;box-shadow:0 0 0 2px #ff6b6b,0 0 14px #ff6b6baa!important;animation:none!important}
 #cMe .slot.hl-me{border-style:solid!important;border-color:#4db3ff!important;box-shadow:0 0 0 2px #4db3ff,0 0 14px #4db3ffaa!important;animation:none!important}
+#cMe .slot.hl-neg{border-style:solid!important;border-color:#ff4d4d!important;box-shadow:0 0 0 2px #ff4d4d,0 0 14px #ff4d4daa!important;animation:none!important}
+.slot.incoming{opacity:.45;border-style:dashed!important;border-color:#ffe066!important}
 
 .win{text-shadow:0 0 10px rgba(62,207,142,.5)}
 .win.lose{color:#ff2d2d;text-shadow:0 0 12px #ff2d2d,0 0 28px #b00000;animation:glow 1.6s ease-in-out infinite}
@@ -462,7 +464,7 @@ const chr=c=>c===FUSID?FUS:c===FUSID2?FUS2:c===FUSID3?FUS3:CH[c];
 const ix=id=>CH.findIndex(x=>x.id===id);
 const CMC=['applebloom','scootaloo','sweetie'].map(ix),APL=['applejack','applebloom','granny'].map(ix),VIL=['chrysalis','tirek','cozy'].map(ix),TW=ix('twilight'),FRN=['pinkie','rarity','applejack','fluttershy','rainbow'].map(ix),VB={a:4,t:2,d:3};
 let OV=null,FZ=[],FN=-1,HL=[],FK=-1;
-let STLFLY={me:false,opp:false}; // полёт похищенной карты в процессе // OV — временная раскладка стороны на время анимации слияния
+let STL={flying:null,credited:{me:false,opp:false}}; // полёт похищенной карты в процессе // OV — временная раскладка стороны на время анимации слияния
 // Раскладка карт по слотам. Комбо-слияния могут срабатывать сколько угодно раз за игру (в т.ч. одно и то же повторно и разные подряд).
 // Слияние: исходные слоты освобождаются, результат встаёт в слот с наименьшим номером.
 const RULES=[
@@ -471,26 +473,75 @@ const RULES=[
   {id:FUSID3,find:s=>APL.every(v=>s.includes(v))?APL.map(v=>s.indexOf(v)):null}
 ];
 // Возвращает итоговую раскладку s и список слияний ev: {k — номер карты, id, src — слоты-источники, at — слот результата, before/after — снимки раскладки}
-function layX(cards){
-  const s=[],ev=[];
-  cards.forEach((c,k)=>{
-    const p=s.indexOf(null);if(p>=0)s[p]=c;else s.push(c);
+// Слияние запоминает исходные карты (st), чтобы комбо можно было украсть целиком.
+// ents: [{c, t}] — t: 'o'+номер (своя карта) или 'i'+номер (украденная)
+function layX2(ents){
+  const s=[],st=[],ev=[];
+  ents.forEach((en,k)=>{
+    const p=s.indexOf(null);
+    if(p>=0){s[p]=en.c;st[p]=[{c:en.c,t:en.t}]}else{s.push(en.c);st.push([{c:en.c,t:en.t}])}
     for(let g=0;g<8;g++){
       let hit=null;
       for(const r of RULES){const ps=r.find(s);if(ps){hit={r,ps};break}}
       if(!hit)break;
       const before=s.slice(),m=Math.min(...hit.ps);
-      hit.ps.forEach(i=>{s[i]=null});s[m]=hit.r.id;
-      ev.push({k,id:hit.r.id,src:hit.ps.slice(),at:m,before,after:s.slice()});
+      const mem=hit.ps.flatMap(i=>st[i]||[]);
+      hit.ps.forEach(i=>{s[i]=null;st[i]=null});
+      s[m]=hit.r.id;st[m]=mem;
+      ev.push({k,tok:en.t,id:hit.r.id,src:hit.ps.slice(),at:m,before,after:s.slice(),mem});
     }
   });
-  return {s,ev};
+  return {s,st,ev};
 }
+function layX(cards){return layX2(cards.map((c,k)=>({c,t:'o'+k})))}
 function lay(cards){return layX(cards).s}
 
 const fill=cards=>lay(cards).filter(c=>c!=null).length;
-const layS=side=>(OV&&OV.side===side)?OV.s:lay(side==='me'?shown.me:shown.opp);
-function banner(t,c){const b=document.createElement('div');b.className='fzban '+c;b.textContent=t;document.body.appendChild(b);setTimeout(()=>b.remove(),2300)}
+// ===== Кража и раскладка =====
+// Цель кражи ищется только по собственным картам жертвы (до кражи), поэтому результат одинаков у обоих игроков и не зависит от порядка вскрытия.
+const cardsOf=S=>S==='me'?myCards:((opp&&opp.cards)||[]);
+const nSide=S=>S==='me'?nMe():nOp();
+function landOfVictim(V){
+  const T=V==='me'?'opp':'me';
+  const d=T==='me'?myDeb:(opp&&opp.deb);
+  if(!d||!DB[d.k]||!DB[d.k].steal||!d.slot)return null;
+  const cards=cardsOf(V),k=d.slot-1;
+  // карта встаёт в первый свободный слот; если это выбранный для кражи слот — карта уходит ДО слияния,
+  // поэтому комбо из неё у жертвы не складывается
+  for(let j=0;j<cards.length;j++){
+    const pre=layX2(cards.slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
+    const p=pre.indexOf(null);
+    if((p>=0?p:pre.length)===k)return {j,k,members:[{c:cards[j],t:'o'+j}]};
+  }
+  return null;
+}
+const removedOf=V=>new Set((landOfVictim(V)||{members:[]}).members.map(m=>m.t));
+const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?l.members.map((m,n)=>({c:m.c,t:'i'+n})):[]};
+// карта уже улетела из слота жертвы (полёт завершён)
+const landDone=V=>{const l=landOfVictim(V);return !!l&&shown[V].length>l.j&&STL.flying!==(V==='me'?'opp':'me')};
+// все карты стороны вытянуты и она уже не ждёт спина
+const revealDone=S=>shown[S].length>=cardsOf(S).length&&fill(cardsOf(S))>=nSide(S);
+// что видно прямо сейчас: своя карта без украденных, плюс украденная — когда вор всё вытянул
+function seqDisp(S){
+  const rem=landDone(S)?removedOf(S):new Set();
+  const own=shown[S].map((c,t)=>({c,t:'o'+t})).filter(e=>!rem.has(e.t));
+  return (landDone(S==='me'?'opp':'me')&&revealDone(S))?own.concat(inboxOf(S)):own;
+}
+// итоговая раскладка (для боя): без украденного у жертвы, с украденным у вора в конце
+function seqFinal(S){
+  const rem=removedOf(S);
+  return cardsOf(S).map((c,t)=>({c,t:'o'+t})).filter(e=>!rem.has(e.t)).concat(inboxOf(S));
+}
+function layT(S,sh){
+  if(sh){if(OV&&OV.side===S)return {s:OV.s,st:[]};return layX2(seqDisp(S))}
+  return layX2(seqFinal(S));
+}
+const layS=S=>layT(S,true).s;
+function resetSteal(){STL={flying:null,credited:{me:false,opp:false}}}
+const liveBanners=new Set();
+function banner(t,c){const b=document.createElement('div');b.className='fzban '+c;b.textContent=t;document.body.appendChild(b);liveBanners.add(b);setTimeout(()=>{b.remove();liveBanners.delete(b)},2300)}
+// Уведомления и подсказка комбо не переживают начало раунда
+function clearRoundHints(){liveBanners.forEach(b=>b.remove());liveBanners.clear();$('wlab').textContent=''}
 const rar=i=>{if(i<0)return 4;const x=CH[i],v=x.a+x.t+x.d;return v>=24?4:v>=17?3:v>=12?2:1};
 const $=id=>document.getElementById(id);
 const H=64;
@@ -521,34 +572,26 @@ const nOp=()=>3+((opp&&opp.deb&&DB[opp.deb.k]&&DB[opp.deb.k].plus)?1:0);
 const AFF=D=>!!(D&&(D.on||D.block));
 const xN=side=>{const d=side==='me'?myDeb:(opp&&opp.deb);return(d&&DB[d.k]&&DB[d.k].steal)?1:0};
 const nAll=side=>(side==='me'?nMe():nOp())+xN(side);
-// Похищенная карта: карта соперника в выбранном слоте (если это обычный персонаж)
-const extraCard=(side,sh)=>{
-  const d=side==='me'?myDeb:(opp&&opp.deb);
-  if(!d||!DB[d.k]||!DB[d.k].steal||!d.slot)return null;
-  const oth=side==='me'?'opp':'me';
-  const L2=sh?layS(oth):lay(oth==='me'?myCards:((opp&&opp.cards)||[]));
-  const c=L2[d.slot-1];
-  return(c!=null&&c>=0)?c:null;
-};
 const idx=side=>Array.from({length:nAll(side)},(_,i)=>i);
 function effOf(side,i,sh){
-  const L=sh?layS(side):lay(side==='me'?myCards:((opp&&opp.cards)||[]));
-  const pn=side==='me'?nMe():nOp();
-  const c=i<pn?L[i]:extraCard(side,sh);
+  const T=layT(side,sh),L=T.s;
+  const c=L[i];
   if(c==null)return null;
+  const inc=((T.st&&T.st[i])||[]).some(m=>m.t[0]==='i');
   const x=chr(c);let st={a:x.a,t:x.t,d:x.d},deb=null,blocked=false,combo=false;
   if(VIL.includes(c)&&VIL.every(v=>L.includes(v))){st.a+=VB.a;st.t+=VB.t;st.d+=VB.d;combo=true}
   const hit=side==='me'?(opp&&opp.deb):myDeb,own=side==='me'?myDeb:(opp&&opp.deb);
   const ap=o=>{for(const k of ['a','t','d'])st[k]=Math.max(0,st[k]+((o&&o[k])||0))};
-  if(hit&&DB[hit.k]){const D=DB[hit.k];if(AFF(D)&&(D.all||hit.slot===i+1)){deb=D;if(D.block)blocked=true;else ap(D.on)}}
+  // кража не бьёт по слоту: украденная карта просто переходит к вору
+  if(hit&&DB[hit.k]){const D=DB[hit.k];if(AFF(D)&&!D.steal&&(D.all||hit.slot===i+1)){deb=D;if(D.block)blocked=true;else ap(D.on)}}
   if(own&&DB[own.k]&&DB[own.k].self)ap(DB[own.k].self);
   if(blocked)st={a:0,t:0,d:0};
-  return {...st,deb,blocked,c,combo};
+  return {...st,deb,blocked,c,combo,inc};
 }
+function cardInner(c){const x=chr(c);return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${stat(x.a,x.a,'⚔')} ${stat(x.t,x.t,'🧠')} ${stat(x.d,x.d,'🛡')}</div>`}
 function cardHtml(side,i){
   const e=effOf(side,i,1),c=e.c,x=chr(c);
-  const xt=i>=(side==='me'?nMe():nOp());
-  const tag=xt?'<div class="bd" style="color:var(--ok)">🦹 похищен</div>':e.blocked?'<div class="bd">'+e.deb.e+' выбыл</div>':(e.deb?`<div class="bd">${e.deb.e} ${e.deb.n}</div>`:(e.combo?'<div class="bd" style="color:var(--ok)">🦹 союз</div>':(c<0?'<div class="bd" style="color:#ffe066">✨ комбо</div>':'')));
+  const tag=e.inc?'<div class="bd" style="color:var(--ok)">🦹 похищен</div>':e.blocked?'<div class="bd">'+e.deb.e+' выбыл</div>':(e.deb?`<div class="bd">${e.deb.e} ${e.deb.n}</div>`:(e.combo?'<div class="bd" style="color:var(--ok)">🦹 союз</div>':(c<0?'<div class="bd" style="color:#ffe066">✨ комбо</div>':'')));
   return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${e.blocked?'не в бою':stat(e.a,x.a,'⚔')+' '+stat(e.t,x.t,'🧠')+' '+stat(e.d,x.d,'🛡')}</div>${tag}`;
 }
 const rv=()=>stage==='trans'||stage==='spin'||stage==='battle';
@@ -557,12 +600,14 @@ function drawSlots(){
   for(const [id,side] of [['cMe','me'],['cOpp','opp']]){
     const arr=layS(side);
     const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
-    const pn=side==='me'?nMe():nOp();
-    const n=rv()?pn+((xN(side)&&(STLFLY[side]||extraCard(side,1)!=null))?1:0):3;
+    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side),arr.length)):3;
+    const n=base+(STL.flying===side?1:0);
     const prevSig=DRAWN[id]||[],nowSig=[];
     $(id).innerHTML=Array.from({length:n},(_,i)=>i).map(i=>{
-      const cI=i<pn?arr[i]:(i===pn&&!STLFLY[side]?extraCard(side,1):null);
-      if(cI!=null){const dead=effOf(side,i,1).blocked;const sd=side==='me'?'m':'o';const f=(FZ.includes(sd+i)?'z'+FK:'')+(FN===sd+i?'n'+FK:'')+(HL.includes(sd+i)?'v':'');const pv=prevSig[i];const still=!!pv&&pv.c===cI&&(pv.f===f||f==='');nowSig[i]={c:cI,f};return `<div class="slot f r${rar(cI)}${still?' still':''}${dead?' dead':''}${cI<0?' fzc k'+(-cI):''}${FZ.includes(sd+i)?' fz k'+(-FK):''}${FN===sd+i?' fzn k'+(-FK):''}${HL.includes(sd+i)?' vil':''}">${cardHtml(side,i)}</div>`}
+      if(STL.flying===side&&i===n-1)return `<div class="slot incoming" data-i="${i+1}"></div>`;
+      const cI=i<arr.length?arr[i]:null;
+      if(cI!=null){const dead=effOf(side,i,1).blocked;const sd=side==='me'?'m':'o';const f=(FZ.includes(sd+i)?'z'+FK:'')+(FN===sd+i?'n'+FK:'')+(HL.includes(sd+i)?'v':'');const pv=prevSig[i];const still=!!pv&&pv.c===cI&&(pv.f===f||f==='');nowSig[i]={c:cI,f};return `<div data-i="${i+1}" class="slot f r${rar(cI)}${still?' still':''}${dead?' dead':''}${cI<0?' fzc k'+(-cI):''}${FZ.includes(sd+i)?' fz k'+(-FK):''}${FN===sd+i?' fzn k'+(-FK):''}${HL.includes(sd+i)?' vil':''}">${cardHtml(side,i)}</div>`}
+      if(cI==null&&rv()&&revealDone(side))return '';
       const hit=dd&&AFF(DB[dd.k])&&(DB[dd.k].all||dd.slot===i+1);
       return `<div class="slot${hit&&DB[dd.k].block?' dead':''}" data-i="${i+1}"><div class="e" style="font-size:26px">?</div>карта ${i+1}${hit?`<div class="bd">${DB[dd.k].e} ${DB[dd.k].block?'выбыл':DB[dd.k].n}</div>`:''}</div>`;
     }).join('');
@@ -577,12 +622,20 @@ function drawSlots(){
 function markTargets(){
   const live=stage==='deb'&&!myDeb&&debSel>=0&&debTurn()==='me';
   const D=live?DB[debSel]:null;
-  $('cMe').querySelectorAll('.slot').forEach(x=>x.classList.toggle('hl-me',!!(D&&D.self)));
+  // Свои карты: синие — если эффект усиливает твоих бойцов, красные — если ослабляет
+  const selfSum=(D&&D.self)?Object.values(D.self).reduce((a,b)=>a+b,0):0;
+  $('cMe').querySelectorAll('.slot').forEach(x=>{
+    x.classList.toggle('hl-me',!!(D&&D.self&&selfSum>=0));
+    x.classList.toggle('hl-neg',!!(D&&D.self&&selfSum<0));
+  });
+  // Враг подсвечивается только у ухудшений (первая линия — улучшения — без подсветки врага)
+  const foe=!!(D&&debSel>=3);
+  const everyone=foe&&!!(D.all&&AFF(D));
+  const one=foe&&!D.all&&AFF(D);
+  $('cOpp').classList.toggle('pick',foe&&!D.all);
   $('cOpp').querySelectorAll('.slot').forEach(x=>{
-    const everyone=!!(D&&D.all&&AFF(D));
-    const one=!!(D&&!D.all&&AFF(D)&&slotSel>0&&+x.dataset.i===slotSel);
     x.classList.toggle('hl-opp',everyone);
-    x.classList.toggle('sel',one);
+    x.classList.toggle('sel',one&&slotSel>0&&+x.dataset.i===slotSel);
   });
 }
 const rnd=()=>Math.floor(Math.random()*CH.length);
@@ -681,7 +734,7 @@ function debTurn(){
   if(firstMe){if(!mh)return 'me';if(!oh)return 'opp';return null}
   if(!oh)return 'opp';if(!mh)return 'me';return null;
 }
-function teamStats(side){let A=0,T=0,D=0;const n=nAll(side);for(let i=0;i<n;i++){const e=effOf(side,i);if(!e)continue;A+=e.a;T+=e.t;D+=e.d}return{A,T,D}}
+function teamStats(side){let A=0,T=0,D=0;const n=layT(side,false).s.length;for(let i=0;i<n;i++){const e=effOf(side,i);if(!e)continue;A+=e.a;T+=e.t;D+=e.d}return{A,T,D}}
 function calc(){
   const m=teamStats('me'),o=teamStats('opp');
   const mo=m.A+.5*m.T,md=m.D+.5*m.T,oo=o.A+.5*o.T,od=o.D+.5*o.T;
@@ -692,6 +745,7 @@ function calc(){
 
 function update(){
   if(!opp)return;
+  tryAttach();
   if(finished&&myState.rm===1&&opp.rm===1&&!gone&&!oppLeft){newRound();return}
   if(finished||gone)rematchUI();
   if(gone)return;
@@ -702,7 +756,6 @@ function update(){
     const dt=debTurn();
     if(dt){
       $('pMe').classList.toggle('turn',dt==='me');$('pOpp').classList.toggle('turn',dt==='opp');
-      $('cOpp').classList.toggle('pick',dt==='me');
       if(dt==='me'){stgOff('dbWait');stgOn('dbPick')}else{stgOff('dbPick');stgOn('dbWait')}
       setMsg('');
       markTargets();
@@ -725,32 +778,24 @@ function update(){
   $('spin').disabled=animating;
   setMsg(animating?'Рулетка крутится…':mine?'Твой ход — крути!':'Ход соперника<span class="dots"></span>');
 }
-// Карта соперника, которую похитили, только что открылась в выбранном слоте — вернуть {owner,src,k,card}
-function stealLanding(side,prev){
-  const post=lay(shown[side]);
-  let k=-1;
-  for(let j=0;j<post.length;j++){if(post[j]!=null&&(prev[j]==null)){k=j;break}}
-  if(k<0)return null;
-  for(const owner of ['me','opp']){
-    if(owner===side)continue;
-    const d=owner==='me'?myDeb:(opp&&opp.deb);
-    if(d&&DB[d.k]&&DB[d.k].steal&&d.slot-1===k&&post[k]>=0)return{owner,src:side,k,card:post[k]};
-  }
-  return null;
-}
-// Полёт карты из слота жертвы на место похитителя
-async function stealFly(fl){
-  const srcEl=$(fl.src==='me'?'cMe':'cOpp').querySelectorAll('.slot')[fl.k];
-  const dstEl=$(fl.owner==='me'?'cMe':'cOpp').querySelectorAll('.slot')[fl.owner==='me'?nMe():nOp()];
-  if(!srcEl||!dstEl){STLFLY[fl.owner]=false;drawSlots();return}
+// Полёт украденной карты: целая карточка из слота жертвы в последний слот вора
+async function stealFly(V,l){
+  const T=V==='me'?'opp':'me';
+  const val=layS(V)[l.k];
+  STL.flying=T;
+  drawSlots();
+  const srcEl=$(V==='me'?'cMe':'cOpp').querySelector('.slot[data-i="'+(l.k+1)+'"]');
+  const dsts=$(T==='me'?'cMe':'cOpp').querySelectorAll('.slot');
+  const dstEl=dsts[dsts.length-1];
+  if(!srcEl||!dstEl||val==null){STL.flying=null;drawSlots();return}
   const a=srcEl.getBoundingClientRect(),b=dstEl.getBoundingClientRect();
   const g=document.createElement('div');
-  g.className='slot f ghost r'+rar(fl.card);
-  g.style.cssText='position:fixed;left:'+a.left+'px;top:'+a.top+'px;width:'+a.width+'px;height:'+a.height+'px;margin:0;z-index:80;pointer-events:none';
-  g.innerHTML=face(fl.card,50)+'<b style="font-size:11px">'+CH[fl.card].n+'</b>';
+  g.className='slot f ghost r'+rar(val);
+  g.style.cssText=`position:fixed;left:${a.left}px;top:${a.top}px;width:${a.width}px;height:${a.height}px;margin:0;z-index:80;pointer-events:none;overflow:hidden`;
+  g.innerHTML=cardInner(val);
   document.body.appendChild(g);
   const dx=b.left-a.left,dy=b.top-a.top;
-  $('wlab').textContent='🦹 '+CH[fl.card].n+' переходит к '+(fl.owner==='me'?'тебе':'сопернику');
+  $('wlab').textContent='🦹 '+chr(val).n+' переходит к '+(T==='me'?'тебе':'сопернику');
   try{
     const anim=g.animate([
       {transform:'translate(0px,0px) scale(1)',offset:0},
@@ -758,10 +803,15 @@ async function stealFly(fl){
       {transform:'translate('+dx+'px,'+dy+'px) scale(1)',offset:1}
     ],{duration:1000,easing:'cubic-bezier(.45,0,.2,1)',fill:'forwards'});
     await anim.finished.catch(()=>{});
-  }finally{
-    g.remove();
-    STLFLY[fl.owner]=false;
-    drawSlots();
+  }finally{g.remove();STL.flying=null;drawSlots()}
+}
+// Комбо, собранное украденными картами, засчитывается вору (мне — если я вор)
+function tryAttach(){
+  if(STL.credited.me)return;
+  if(landOfVictim('opp')&&landDone('opp')&&revealDone('me')){
+    STL.credited.me=true;
+    const ev=layX2(seqFinal('me')).ev.filter(e=>e.mem&&e.mem.some(m=>m.t[0]==='i'));
+    if(ev.length){countCombo(ev.length);banner('✨ Комбо у тебя!','vil')}
   }
 }
 async function reveal(side,card){
@@ -771,14 +821,26 @@ async function reveal(side,card){
   try{
     setMsg((side==='me'?'Тебе выпало…':'Сопернику выпало…'));
     await spinTo(card);ck();
-    const prev=lay(shown[side]);
+    const prev=layX2(seqDisp(side)).s;
     shown[side].push(card);
-    const fl=stealLanding(side,prev);if(fl)STLFLY[fl.owner]=true;
-    if(MODE==='real')idleStrip();
-    const R=layX(shown[side]),post=R.s,evs=R.ev.filter(e=>e.k===shown[side].length-1);
+    const j=shown[side].length-1,x=CH[card];
+    const land=landOfVictim(side);
+    if(land&&land.j===j){
+      // карта встала в слот, выбранный вором: до слияния показываем её в слоте и переносим к вору целиком
+      if(side==='me'&&j>=ccDone){ccDone=j+1;snapSave()}
+      const pre=layX2(shown[side].slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
+      pre[land.k]=card;
+      OV={side,s:pre};
+      drawSlots();
+      await stealFly(side,land);ck();
+      OV=null;
+      tryAttach();
+      drawSlots();
+      animating=false;update();return;
+    }
+    const R=layX2(seqDisp(side)),post=R.s,evs=R.ev.filter(e=>e.tok==='o'+j);
     const vilNow=VIL.every(v=>post.includes(v))&&!VIL.every(v=>prev.includes(v));
-    const x=CH[card];
-    if(side==='me'){const k=shown.me.length-1;if(k>=ccDone){if(evs.length||vilNow)countCombo(evs.length+(vilNow?1:0));ccDone=k+1;snapSave()}}
+    if(side==='me'){if(j>=ccDone){if(evs.length||vilNow)countCombo(evs.length+(vilNow?1:0));ccDone=j+1;snapSave()}}
     if(evs.length){
       for(const e of evs){
         const fx=chr(e.id);
@@ -793,7 +855,6 @@ async function reveal(side,card){
       }
       OV=null;FZ=[];FN=-1;drawSlots();
     }else drawSlots();
-    if(fl){await stealFly(fl);ck()}
     if(vilNow){
       HL=post.map((v,i)=>VIL.includes(v)?sd+i:null).filter(Boolean);drawSlots();
       banner('🦹 Злодейский союз: каждому +4⚔ +2🧠 +3🛡','vil');
@@ -801,8 +862,9 @@ async function reveal(side,card){
       await wait(1800);ck();
       HL=[];drawSlots();
     }else if(!evs.length)$('wlab').textContent=x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d;
+    tryAttach();
     animating=false;update();
-  }catch(e){OV=null;FZ=[];FN=-1;HL=[];STLFLY={me:false,opp:false};if(e!=='x'){animating=false;console.error(e)}}
+  }catch(e){OV=null;FZ=[];FN=-1;HL=[];STL.flying=null;if(e!=='x'){animating=false;console.error(e)}}
 }
 $('spin').onclick=()=>{
   if(lock||stage!=='spin'||animating||!myTurn()||fill(myCards)>=nMe())return;
@@ -904,7 +966,7 @@ $('again').onclick=()=>{if(gone||oppLeft||myState.rm===1)return;G.presence({rm:1
 $('toMenu').onclick=()=>leaveGame();
 function newRound(){
   epoch++;round++;if(!baseRoom)baseRoom=roomName;roomName=baseRoom+'#'+round;
-  myCards=[];shown={me:[],opp:[]};animating=false;OV=null;FZ=[];FN=-1;HL=[];STLFLY={me:false,opp:false};coinDone=false;battleStarted=false;gone=false;
+  myCards=[];shown={me:[],opp:[]};animating=false;OV=null;FZ=[];FN=-1;HL=[];resetSteal();coinDone=false;battleStarted=false;gone=false;
   finished=false;meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
   stage='init';lock=true;
   opp.cards=[];opp.deb=null;opp.rm=0;
@@ -912,7 +974,7 @@ function newRound(){
   $('cOpp').classList.remove('pick');
   $('coinBox').firstChild.classList.remove('go');void $('coinBox').offsetWidth;
   ['res','again','toMenu'].forEach(i=>$(i).classList.add('hide'));
-  $('winTxt').textContent='';$('pwTxt').textContent='';$('wlab').textContent='';
+  $('winTxt').textContent='';$('pwTxt').textContent='';clearRoundHints();
   $('dbOk').disabled=true;$('dbGrid').querySelectorAll('.on').forEach(x=>x.classList.remove('on'));$('dbHint').textContent='Выбери ухудшение';
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
   setMsg('');drawSlots();
@@ -927,6 +989,7 @@ function flow(){const ep=epoch;flow0(ep).catch(guard)}
 function toSpin(){const ep=epoch;toSpin0(ep).catch(guard)}
 function battle(){const ep=epoch;battle0(ep).catch(guard)}
 async function flow0(ep){
+  clearRoundHints();
   const f=firstId()===ME.id;
   stage='coin';lock=true;snapSave();
   $('coinBox').firstChild.classList.add('go');stgOn('coinBox');
@@ -1371,7 +1434,7 @@ function prefillShown(){
   shown={me:myCards.slice(),opp:oc.slice()};
   const allDone=fill(myCards)>=nMe()&&fill(oc)>=nOp();
   if(!allDone){let last=null;for(const [sd,arr] of seq)if(arr.length)last=sd;if(last)shown[last].pop()}
-  OV=null;FZ=[];FN=-1;HL=[];STLFLY={me:false,opp:false};
+  OV=null;FZ=[];FN=-1;HL=[];STL.flying=null;
   drawSlots();drawSlots();   // второй вызов помечает слоты «уже стоят» — без появления с эффектом
 }
 function resumeFail(msg){
@@ -1796,7 +1859,7 @@ function leaveGame(){
   const c=cli;setTimeout(()=>{try{c&&c.end(true)}catch(e){}},300);
   cli=null;clearInterval(hb);sid='';oppId='';roomName='';
   try{if(curInvite){curInvite.off();curInvite.remove()}}catch(e){}curInvite=null;
-  myCards=[];shown={me:[],opp:[]};animating=false;OV=null;FZ=[];FN=-1;HL=[];STLFLY={me:false,opp:false};coinDone=false;battleStarted=false;gone=false;
+  myCards=[];shown={me:[],opp:[]};animating=false;OV=null;FZ=[];FN=-1;HL=[];resetSteal();coinDone=false;battleStarted=false;gone=false;
   finished=false;meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
   stage='init';lock=true;round=0;baseRoom='';oppLeft=false;opp=null;joining=false;
   myState={id:ME.id,name:ME.name,cards:[],uid:me?me.uid:''};
@@ -1804,7 +1867,7 @@ function leaveGame(){
   ['water','wheelWrap','cMe','cOpp','dbPick','dbWait','coinBox'].forEach(stgOff);
   $('cOpp').classList.remove('pick');$('coinBox').firstChild.classList.remove('go');
   ['res','again','toMenu','spin'].forEach(i=>$(i).classList.add('hide'));
-  $('winTxt').textContent='';$('pwTxt').textContent='';$('wlab').textContent='';
+  $('winTxt').textContent='';$('pwTxt').textContent='';clearRoundHints();
   $('dbOk').disabled=true;$('dbGrid').querySelectorAll('.on').forEach(x=>x.classList.remove('on'));
   $('dbHint').textContent='Выбери ухудшение';
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');setMsg('');
