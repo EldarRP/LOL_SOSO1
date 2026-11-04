@@ -502,7 +502,6 @@ function lay(cards){return layX(cards).s}
 const fill=cards=>lay(cards).filter(c=>c!=null).length;
 // ===== Кража и раскладка =====
 // Цель кражи ищется только по собственным картам жертвы (до кражи), поэтому результат одинаков у обоих игроков и не зависит от порядка вскрытия.
-const STEAL_NO=new Set([TW,...FRN,...CMC,...APL]);
 const cardsOf=S=>S==='me'?myCards:((opp&&opp.cards)||[]);
 const nSide=S=>S==='me'?nMe():nOp();
 function landOfVictim(V){
@@ -515,24 +514,16 @@ function landOfVictim(V){
   // Пока жертва вытянула не все карты, запасной вариант выбирать нельзя: нужный слот может заполниться следующей картой.
   // Иначе кража «прилипала» к первой попавшейся карте, а потом перескакивала на другую.
   const full=fill(cards)>=nSide(V);
-  // Карты, входящие в слияния (Твайлайт, подруги, Эпл Блум/Скуталу/Свитти, семья Эплов), красть нельзя: если вытащить одну из них,
-  // комбо у жертвы разваливается, карты «расслияются» и на столе оказывается больше бойцов, чем положено (например 5 при «Бонус карте»).
-  // Набор постоянный, поэтому выбор цели не меняется по мере добора карт. Если других карт нет вовсе — берём любую (запасной вариант).
-  let best=null,any=null;
+  let best=null;
   for(let j=0;j<cards.length;j++){
     const pre=layX2(cards.slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
     const p=pre.indexOf(null);
     const pos=p>=0?p:pre.length;
     const cand={j,k:pos,members:[{c:cards[j],t:'o'+j}]};
-    const ok=!STEAL_NO.has(cards[j]);
-    if(pos===k&&ok)return cand;
-    if(full){
-      if(ok&&(!best||Math.abs(pos-k)<=Math.abs(best.k-k)))best=cand;
-      cand.cnt=layX2(cards.filter((_,t)=>t!==j).map((c,t)=>({c,t:'o'+t}))).s.filter(v=>v!=null).length;
-      if(!any||cand.cnt<any.cnt||(cand.cnt===any.cnt&&Math.abs(pos-k)<=Math.abs(any.k-k)))any=cand;
-    }
+    if(pos===k)return cand;
+    if(full&&(!best||Math.abs(pos-k)<=Math.abs(best.k-k)))best=cand;
   }
-  return best||any;
+  return best;
 }
 const removedOf=V=>new Set((landOfVictim(V)||{members:[]}).members.map(m=>m.t));
 const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?l.members.map((m,n)=>({c:m.c,t:'i'+n})):[]};
@@ -657,7 +648,7 @@ function drawSlots(){
     // украденная карта уже ушла из слота жертвы: под неё место не держим
     const gone=(rv()&&landDone(side))?removedOf(side).size:0;
     // украденная карта уже у вора, а его собственные карты ещё вытягиваются: показываем её сразу, последней в колонке
-    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):nSide(side);
+    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):3;
     const n=base+pend.length+(STL.flying===side?1:0);
     const prev=DRAWN[id],now={},occ={},sd=side==='me'?'m':'o';
     // пустые слоты нумеруем с конца: когда сверху уходит карта или добавляется новая, серые слоты двигаются вместе с карточками
@@ -767,7 +758,7 @@ function idleStrip(){
     x.restore();
     if(MODE==='real'&&(shown.me.includes(WH[i])||shown.opp.includes(WH[i]))){
       x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R,i*A-A/2-Math.PI/2,i*A+A/2-Math.PI/2);x.closePath();
-      x.fillStyle='rgba(120,120,120,.88)';x.fill();x.strokeStyle='#0e1116';x.lineWidth=3;x.stroke();
+      x.fillStyle='rgba(30,32,38,.82)';x.fill();x.strokeStyle='#0e1116';x.lineWidth=3;x.stroke();
     }
   }
   x.beginPath();x.arc(cx,cy,34,0,7);x.fillStyle='#0e1116';x.fill();x.strokeStyle='#f2a900';x.lineWidth=4;x.stroke();
@@ -936,8 +927,6 @@ async function reveal(side,card){
     const prev=layX2(seqDisp(side)).s;
     const prevEv=new Set(layX2(seqDisp(side)).ev.map(evKey));
     shown[side].push(card);
-    // сразу после выпадения карта на колесе становится серой (в реалистичном режиме)
-    idleStrip();
     const j=shown[side].length-1,x=CH[card];
     const land=landOfVictim(side);
     if(land&&land.j===j){
@@ -1557,7 +1546,6 @@ function prefillShown(){
   if(!allDone){let last=null;for(const [sd,arr] of seq)if(arr.length)last=sd;if(last)shown[last].pop()}
   OV=null;FZ=[];FN=-1;HL=[];STL.flying=null;
   drawSlots();drawSlots();   // второй вызов помечает слоты «уже стоят» — без появления с эффектом
-  idleStrip();               // колесо сразу показывает серыми уже выпавших героев
 }
 function resumeFail(msg){
   clearTimeout(resumeTimer);resumeTimer=null;resumeSnap=null;
@@ -2172,9 +2160,8 @@ CM.wdGrid=kind=>{
   let h='<button class="wd-cell'+(cur?'':' on')+'" data-k="'+kind+'" data-id=""><span class="wd-q" style="font-size:20px">✕</span><small>без '+(kind==='crown'?'короны':'крыльев')+'</small></button>';
   CM.SETS.forEach((s,i)=>{
     const id=(kind==='crown'?'crown_':'wing_')+String(i+1).padStart(2,'0');
-    if(!st.owned.includes(id))return;   // недоступные (серые) предметы в профиле не показываем
-    const it=CM.byId(id);
-    h+='<button class="wd-cell'+(cur===id?' on':'')+'" data-k="'+kind+'" data-id="'+id+'"><img src="'+it.img+'" alt=""><small>'+s.n+'</small></button>';
+    const it=CM.byId(id),own=st.owned.includes(id);
+    h+='<button class="wd-cell'+(own?'':' lock')+(cur===id?' on':'')+'" data-k="'+kind+'" data-id="'+id+'"'+(own?'':' disabled')+'>'+'<img src="'+it.img+'" alt=""><small>'+(own?s.n:'не получено')+'</small></button>';
   });
   return h;
 };
