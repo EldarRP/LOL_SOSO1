@@ -123,7 +123,7 @@ textarea.in{resize:none;font-family:inherit}
 #lobby.busy{pointer-events:none}
 #mail{transition:opacity .4s ease,transform .4s ease}
 #mail.off{opacity:0;pointer-events:none;transform:scale(.6)}
-#book{position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);right:12px;z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);font-size:22px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
+#book{position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);right:max(12px,calc((100vw - 480px)/2 + 12px));z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);font-size:22px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
 #book.off{opacity:0;pointer-events:none;transform:scale(.6)}
 #bookP{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto}
 .cb{text-align:left;margin-top:10px;padding:10px;border:1px solid var(--ln);border-radius:6px;background:var(--bg)}
@@ -488,11 +488,12 @@ function layX2(ents){
       let hit=null;
       for(const r of RULES){const ps=r.find(s);if(ps){hit={r,ps};break}}
       if(!hit)break;
-      const before=s.slice(),m=Math.min(...hit.ps);
+      const before=s.slice(),stBefore=st.map(group=>group?group.map(item=>({...item})):null),m=Math.min(...hit.ps);
       const mem=hit.ps.flatMap(i=>st[i]||[]);
       hit.ps.forEach(i=>{s[i]=null;st[i]=null});
       s[m]=hit.r.id;st[m]=mem;
-      ev.push({k,tok:en.t,id:hit.r.id,src:hit.ps.slice(),at:m,before,after:s.slice(),mem});
+      const after=s.slice(),stAfter=st.map(group=>group?group.map(item=>({...item})):null);
+      ev.push({k,tok:en.t,id:hit.r.id,src:hit.ps.slice(),at:m,before,after,mem,stBefore,stAfter});
     }
   });
   return {s,st,ev};
@@ -561,7 +562,7 @@ function seqFinal(S){
   return cardsOf(S).map((c,t)=>({c,t:'o'+t})).filter(e=>!rem.has(e.t)).concat(inboxOf(S));
 }
 function layT(S,sh){
-  if(sh){if(OV&&OV.side===S)return {s:OV.s,st:[]};return layX2(seqDisp(S))}
+  if(sh){if(OV&&OV.side===S)return {s:OV.s,st:OV.st||[]};return layX2(seqDisp(S))}
   return layX2(seqFinal(S));
 }
 const layS=S=>layT(S,true).s;
@@ -572,6 +573,13 @@ function banner(t,c){const b=document.createElement('div');b.className='fzban '+
 function clearRoundHints(){liveBanners.forEach(b=>b.remove());liveBanners.clear();$('wlab').textContent=''}
 const rar=i=>{if(i<0)return 4;const x=CH[i],v=x.a+x.t+x.d;return v>=24?4:v>=17?3:v>=12?2:1};
 const $=id=>document.getElementById(id);
+// Поддерживает старый булев статус и новый список отдельных подключений вкладок.
+function statusOnline(v){
+  if(v===true)return true;
+  if(!v||typeof v!=='object')return false;
+  const c=v.connections;
+  return !!c&&Object.values(c).some(active=>active===true);
+}
 const H=64;
 // ID игрока хранится в sessionStorage: у каждой вкладки свой ID,
 // а перезагрузка страницы в той же вкладке его сохраняет (нужно для возврата в бой).
@@ -628,7 +636,21 @@ function cardHtml(side,i){
   return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${e.blocked?'не в бою':stat(e.a,x.a,'⚔')+' '+stat(e.t,x.t,'🧠')+' '+stat(e.d,x.d,'🛡')}</div>${tag}`;
 }
 const rv=()=>stage==='trans'||stage==='spin'||stage==='battle';
+// Кэш анимаций относится только к текущему визуальному поколению (раунд/матч).
+// Номера источников o0/o1 повторяются в каждом раунде, поэтому одного токена недостаточно.
+let visualGeneration=0;
 const DRAWN={cMe:{},cOpp:{}};
+function resetVisualState(){
+  visualGeneration++;
+  DRAWN.cMe={};
+  DRAWN.cOpp={};
+}
+// У каждого экземпляра карты уникальный ключ: поколение + сторона + значение + исходные экземпляры.
+function visualCardKey(side,members,slot,card){
+  const tokens=Array.isArray(members)?members.map(m=>m&&m.t).filter(Boolean).sort():[];
+  const identity=tokens.length?tokens.join('+'):'slot'+slot;
+  return 'g'+visualGeneration+'|'+side+'|card'+card+'|'+identity;
+}
 // Положение карты в колонке по вёрстке (offsetTop), а не по getBoundingClientRect:
 // rect учитывает идущие анимации (pop-масштаб, сдвиг), из-за этого карта при перерисовке
 // записывала «не своё» место и потом прыгала. Если карта сейчас едет по FLIP, берём её текущий сдвиг.
@@ -647,7 +669,7 @@ function drawSlots(){
     // где сейчас стоит каждая карта: по ключу самой карты, а не по номеру слота
     const was=new Map();
     host.querySelectorAll('[data-key]').forEach(el=>{if(el.offsetHeight)was.set(el.dataset.key,layTop(el))});
-    let arr=layS(side);
+    let layout=layT(side,true),arr=layout.s;
     // Украденная карта, пока вор ещё вытягивает свои: стоит внизу колонки (туда же она летит), а не прыгает на первое свободное место.
     // Если она уже участвует в слиянии, показываем обычную раскладку.
     let pend=[];
@@ -658,7 +680,8 @@ function drawSlots(){
     }else if(rv()&&!revealDone(side)&&landDone(thiefOf)&&!(OV&&OV.side===side)){
       const RA=layX2(seqDisp(side));
       if(!RA.ev.some(e=>String(e.tok)[0]==='i')){
-        arr=layX2(seqDisp(side).filter(e=>e.t[0]==='o')).s;
+        layout=layX2(seqDisp(side).filter(e=>e.t[0]==='o'));
+        arr=layout.s;
         pend=inboxOf(side);
       }
     }
@@ -668,7 +691,7 @@ function drawSlots(){
     // украденная карта уже у вора, а его собственные карты ещё вытягиваются: показываем её сразу, последней в колонке
     const base=rv()?Math.max(arr.length,nSide(side)-gone):SIZE;
     const n=base+pend.length+(STL.flying===side?1:0);
-    const prev=DRAWN[id],now={},occ={},sd=side==='me'?'m':'o';
+    const prev=DRAWN[id],now={},sd=side==='me'?'m':'o';
     // пустые слоты нумеруем с конца: когда сверху уходит карта или добавляется новая, серые слоты двигаются вместе с карточками
     const phAt=[];
     // пустые слоты после слияния остаются на своих местах (и после вскрытия тоже)
@@ -678,15 +701,16 @@ function drawSlots(){
       if(STL.flying===side&&i===n-1)return `<div class="slot incoming" data-i="${i+1}"></div>`;
       if(i>=base){
         const c=pend[i-base].c;
-        occ[c]=(occ[c]||0)+1;
-        const key=side+'|'+c+'|'+occ[c];
+        const key=visualCardKey(side,[{t:pend[i-base].t||('pending'+(i-base))}],i,c);
         now[key]='';
         return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(c)}${prev[key]!==undefined?' still':' land'}">${cardInnerPen(c,side)}</div>`;
       }
       const cI=i<arr.length?arr[i]:null;
       if(cI!=null){
-        occ[cI]=(occ[cI]||0)+1;
-        const key=side+'|'+cI+'|'+occ[cI];
+        const members=layout.st&&layout.st[i];
+        // Стабильный ключ строится по исходным экземплярам карт, а не по номеру повтора персонажа.
+        // Это не даёт второй одинаковой карте наследовать анимацию первой после слияния/кражи.
+        const key=visualCardKey(side,members,i,cI);
         const dead=effOf(side,i,1).blocked;
         const f=(FZ.includes(sd+i)?'z'+FK:'')+(FN===sd+i?'n'+FK:'')+(HL.includes(sd+i)?'v':'');
         const pv=prev[key];
@@ -797,35 +821,51 @@ function idleStrip(){
   x.beginPath();x.arc(cx,cy,34,0,7);x.fillStyle='#0e1116';x.fill();x.strokeStyle='#f2a900';x.lineWidth=4;x.stroke();
   x.font='30px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('⚔️',cx,cy+2);
 }
-let spinRun=false,pendingIdle=false,spinRaf=0;
-// Анимация на requestAnimationFrame: если кадры «зависли» (слабый телефон, сеть, фон), рулетка НЕ перескакивает на результат,
-// а продолжает крутиться с того же места — за один кадр прибавляется не больше 50 мс.
+let spinRun=false,pendingIdle=false,spinRaf=0,spinCancel=null;
+function cancelSpin(){if(spinCancel)spinCancel()}
+// Анимация на requestAnimationFrame. Таймеры и RAF обязательно снимаются при завершении/сбросе раунда.
 function spinTo(target){
   return new Promise(res=>{
+    cancelSpin();
     const A=360/CH.length,off=(Math.random()-.5)*A*.6;
     const need=(((-WH.indexOf(target)*A-off-rot)%360)+360)%360;
     const from=rot,to=rot+360*5+need,DUR=4200,cv=$('wheel');
     rot=to;spinRun=true;
     $('wlab').textContent='';
-    cancelAnimationFrame(spinRaf);
-    let el=0,last=0,done=false;
-    const fin=()=>{
-      if(done)return;done=true;cancelAnimationFrame(spinRaf);
+    let el=0,last=0,done=false,tNoFrames=0,tSafety=0,raf=0;
+    const cleanup=()=>{
+      cancelAnimationFrame(raf);
+      if(tNoFrames)clearTimeout(tNoFrames);
+      if(tSafety)clearTimeout(tSafety);
+      if(spinCancel===cancel)spinCancel=null;
+      if(spinRaf===raf)spinRaf=0;
+    };
+    const finish=()=>{
+      if(done)return;done=true;cleanup();
       cv.style.transform='rotate('+to+'deg)';spinRun=false;
       if(pendingIdle){pendingIdle=false;idleStrip()}
       res();
     };
+    const cancel=()=>{
+      if(done)return;done=true;cleanup();spinRun=false;
+      // rot уже указывает на запланированный конечный угол; фиксируем его,
+      // чтобы следующий запуск не начинался с промежуточного CSS-кадра.
+      cv.style.transform='rotate('+rot+'deg)';
+      if(pendingIdle){pendingIdle=false;idleStrip()}
+      res();
+    };
+    spinCancel=cancel;
     const step=t=>{
       if(done)return;
       if(!last)last=t;
       el+=Math.min(Math.max(t-last,0),50);last=t;
       const p=Math.min(1,el/DUR),e=1-Math.pow(1-p,4);
       cv.style.transform='rotate('+(from+(to-from)*e)+'deg)';
-      if(p>=1)fin();else spinRaf=requestAnimationFrame(step);
+      if(p>=1)finish();else{raf=requestAnimationFrame(step);spinRaf=raf}
     };
-    spinRaf=requestAnimationFrame(step);
-    setTimeout(()=>{if(!last)fin()},1500);   // если кадры вообще не идут — не зависаем
-    setTimeout(fin,30000);
+    raf=requestAnimationFrame(step);spinRaf=raf;
+    tNoFrames=setTimeout(()=>{if(!last)finish()},1500);
+    tSafety=setTimeout(finish,30000);
   });
 }
 
@@ -932,12 +972,12 @@ async function playFusions(S,list,ck,labelOf){
   const sd=S==='me'?'m':'o';
   for(const e of list){
     const fx=chr(e.id);
-    OV={side:S,s:e.before};FZ=[];FN=-1;drawSlots();
+    OV={side:S,s:e.before,st:e.stBefore};FZ=[];FN=-1;drawSlots();
     $('wlab').textContent=labelOf(e);
     await wait(1000);ck();
     FK=e.id;FZ=e.src.map(i=>sd+i);drawSlots();banner(fx.e+' '+fx.n+' '+fx.e,'fz k'+(-e.id));
     await wait(1900);ck();
-    OV={side:S,s:e.after};FZ=[];FN=sd+e.at;drawSlots();
+    OV={side:S,s:e.after,st:e.stAfter};FZ=[];FN=sd+e.at;drawSlots();
     $('wlab').textContent=fx.e+' '+fx.n+' · ⚔'+fx.a+' 🧠'+fx.t+' 🛡'+fx.d+' — освободившиеся слоты выбираются дальше';
     await wait(1100);ck();
   }
@@ -974,8 +1014,8 @@ async function reveal(side,card){
       const preT=layX2(seqDisp(T)).s;
       // Показываем фактическую сущность, которая улетает: если текущая карта завершила комбо,
       // на поле уже стоит готовое комбо, и именно оно переносится целиком.
-      const pre=layX2(shown[side].slice(0,j+1).map((c,t)=>({c,t:'o'+t}))).s;
-      OV={side,s:pre,steal:1};
+      const preLayout=layX2(shown[side].slice(0,j+1).map((c,t)=>({c,t:'o'+t})));
+      OV={side,s:preLayout.s,st:preLayout.st,steal:1};
       drawSlots();
       await stealFly(side,land);ck();
       OV=null;
@@ -1112,6 +1152,8 @@ function rematchUI(){
 $('again').onclick=()=>{if(gone||oppLeft||myState.rm===1)return;G.presence({rm:1});rematchUI();update()};
 $('toMenu').onclick=()=>leaveGame();
 function newRound(){
+  cancelSpin();
+  resetVisualState();
   epoch++;round++;if(!baseRoom)baseRoom=roomName;roomName=baseRoom+'#'+round;
   myCards=[];shown={me:[],opp:[]};animating=false;OV=null;FZ=[];FN=-1;HL=[];resetSteal();coinDone=false;battleStarted=false;gone=false;
   finished=false;meWin=false;myDeb=null;debSel=-1;slotSel=0;TS=null;
@@ -1428,19 +1470,27 @@ $('cancel').onclick=()=>cancelWait(waitBack);
 // ===== Выход из боя =====
 // Обрыв связи бой не завершает: соперник ждёт OPP_GRACE на возврат.
 // Поражение записывается при явном выходе (крестик), а если соперник не вернулся в срок, победа засчитывается оставшемуся.
-let matchLive=false,oppFbRef=null,oppFbCb=null,oppFbOnline=true;
+let matchLive=false,oppFbRef=null,oppFbCb=null,oppFbOnline=true,oppFbGoneT=null;
 function watchOpp(){
   unwatchOpp();
   if(!fdb||!opp||!opp.uid)return;
   oppFbRef=fdb.ref('status/'+opp.uid);
   oppFbOnline=true;
   oppFbCb=s=>{
-    oppFbOnline=s.val()!==false;
-    if(!oppFbOnline)setTimeout(()=>{if(matchLive&&!finished&&!oppFbOnline)forfeitWin(!!(opp&&opp.deb&&myDeb))},OPP_GRACE);
+    oppFbOnline=statusOnline(s.val());
+    if(oppFbOnline){clearTimeout(oppFbGoneT);oppFbGoneT=null;return}
+    // Перезапускаем один таймер. Событие «онлайн» отменяет его, чтобы старый таймер
+    // не завершил бой после успешного переподключения соперника.
+    clearTimeout(oppFbGoneT);
+    oppFbGoneT=setTimeout(()=>{
+      oppFbGoneT=null;
+      if(matchLive&&!finished&&!oppFbOnline)forfeitWin(!!(opp&&opp.deb&&myDeb));
+    },OPP_GRACE);
   };
   oppFbRef.on('value',oppFbCb);
 }
 function unwatchOpp(){
+  clearTimeout(oppFbGoneT);oppFbGoneT=null;
   if(oppFbRef&&oppFbCb){try{oppFbRef.off('value',oppFbCb)}catch(e){}}
   oppFbRef=null;oppFbCb=null;
 }
@@ -1780,8 +1830,11 @@ function onUser(u){
     hideLoader();
   });
   meOff.push(()=>ref.off('value',cb));
-  const st=fdb.ref('status/'+u.uid),ic=fdb.ref('.info/connected');
-  const c2=ic.on('value',s=>{if(s.val()){st.onDisconnect().set(false);st.set(true)}});
+  // Присутствие хранится отдельно для каждой вкладки: отключение одной не гасит остальные.
+  const st=fdb.ref('status/'+u.uid+'/connections/'+TAB),ic=fdb.ref('.info/connected');
+  const c2=ic.on('value',s=>{
+    if(s.val())st.onDisconnect().remove().then(()=>st.set(true)).catch(e=>console.warn('presence:',e));
+  });
   meOff.push(()=>ic.off('value',c2));
   const rq=fdb.ref('requests/'+u.uid),c3=rq.on('value',s=>renderReq(s.val()||{}));
   meOff.push(()=>rq.off('value',c3));
@@ -1792,7 +1845,7 @@ function onUser(u){
     frOff.forEach(f=>f());frOff=[];FR={};
     Object.keys(s.val()||{}).forEach(f=>{
       FR[f]={};const ur=fdb.ref('users/'+f),sr=fdb.ref('status/'+f);
-      const a=ur.on('value',x=>{FR[f].u=x.val();renderFr()}),b=sr.on('value',x=>{FR[f].on=!!x.val();renderFr()});
+      const a=ur.on('value',x=>{FR[f].u=x.val();renderFr()}),b=sr.on('value',x=>{FR[f].on=statusOnline(x.val());renderFr()});
       frOff.push(()=>ur.off('value',a),()=>sr.off('value',b));
     });
     renderFr();
@@ -1850,7 +1903,7 @@ async function openProf(uid,pre){
   const u=await getUser(uid);
   if(upUid!==uid)return;
   if(u)paintProf(u);
-  try{const on=(await fdb.ref('status/'+uid).once('value')).val();if(upUid===uid)$('upOn').textContent=on?'🟢 в сети':'⚫ не в сети'}catch(e){}
+  try{const on=statusOnline((await fdb.ref('status/'+uid).once('value')).val());if(upUid===uid)$('upOn').textContent=on?'🟢 в сети':'⚫ не в сети'}catch(e){}
   if(isMe||upUid!==uid)return;
   let isF=!!FR[uid];
   if(!isF){try{isF=(await fdb.ref('friends/'+me.uid+'/'+uid).once('value')).exists()}catch(e){}}
@@ -1966,7 +2019,7 @@ $('pfSave').onclick=async()=>{
   try{await fdb.ref('users/'+me.uid+'/bio').set($('pfBio').value.trim().slice(0,120));$('pfSave').textContent='Сохранено ✓';setTimeout(()=>$('pfSave').textContent='Сохранить описание',1500)}catch(e){err('Ошибка: '+(e.message||e))}
 };
 $('logout').onclick=async()=>{
-  try{await fdb.ref('status/'+me.uid).set(false)}catch(e){}
+  try{await fdb.ref('status/'+me.uid+'/connections/'+TAB).remove()}catch(e){}
   meOff.forEach(f=>f());meOff=[];me=null;ME.name='Пони-'+Math.floor(100+Math.random()*900);
   await auth.signOut();
 };
@@ -2001,6 +2054,8 @@ function cancelWait(back){
   show(back||'menu');
 }
 function leaveGame(){
+  cancelSpin();
+  resetVisualState();
   endMatch();
   epoch++;
   try{if(cli&&sid){pub('g/'+sid+'/p/'+ME.id,{bye:1})}}catch(e){}
