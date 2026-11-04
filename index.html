@@ -506,14 +506,18 @@ function landOfVictim(V){
   const d=T==='me'?myDeb:(opp&&opp.deb);
   if(!d||!DB[d.k]||!DB[d.k].steal||!d.slot)return null;
   const cards=cardsOf(V),k=d.slot-1;
-  // карта встаёт в первый свободный слот; если это выбранный для кражи слот — карта уходит ДО слияния,
-  // поэтому комбо из неё у жертвы не складывается
+  // карта встаёт в первый свободный слот. Если выбранный слот так и не заполнился (слияния освободили место раньше),
+  // кража не пропадает: уходит ближайшая по месту карта. Правило детерминированно, поэтому у обоих игроков одинаково.
+  let best=null;
   for(let j=0;j<cards.length;j++){
     const pre=layX2(cards.slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
     const p=pre.indexOf(null);
-    if((p>=0?p:pre.length)===k)return {j,k,members:[{c:cards[j],t:'o'+j}]};
+    const pos=p>=0?p:pre.length;
+    const cand={j,k:pos,members:[{c:cards[j],t:'o'+j}]};
+    if(pos===k)return cand;
+    if(!best||Math.abs(pos-k)<=Math.abs(best.k-k))best=cand;
   }
-  return null;
+  return best;
 }
 const removedOf=V=>new Set((landOfVictim(V)||{members:[]}).members.map(m=>m.t));
 const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?l.members.map((m,n)=>({c:m.c,t:'i'+n})):[]};
@@ -606,11 +610,20 @@ function drawSlots(){
     const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
     // украденная карта уже ушла из слота жертвы: под неё место не держим
     const gone=(rv()&&landDone(side))?removedOf(side).size:0;
-    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):3;
-    const n=base+(STL.flying===side?1:0);
+    // украденная карта уже у вора, а его собственные карты ещё вытягиваются: показываем её сразу, последней в колонке
+    const pend=(rv()&&!revealDone(side)&&landDone(side==='me'?'opp':'me'))?inboxOf(side):[];
+    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone-pend.length,arr.length)):3;
+    const n=base+pend.length+(STL.flying===side?1:0);
     const prev=DRAWN[id],now={},occ={},sd=side==='me'?'m':'o';
     host.innerHTML=Array.from({length:n},(_,i)=>i).map(i=>{
       if(STL.flying===side&&i===n-1)return `<div class="slot incoming" data-i="${i+1}"></div>`;
+      if(i>=base){
+        const c=pend[i-base].c;
+        occ[c]=(occ[c]||0)+1;
+        const key=side+'|'+c+'|'+occ[c];
+        now[key]='';
+        return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(c)}${prev[key]!==undefined?' still':''}">${cardInner(c)}<div class="bd" style="color:var(--ok)">🦹 похищен</div></div>`;
+      }
       const cI=i<arr.length?arr[i]:null;
       if(cI!=null){
         occ[cI]=(occ[cI]||0)+1;
@@ -826,7 +839,7 @@ async function stealFly(V,l){
       {transform:'translate('+dx+'px,'+dy+'px) scale(1)',offset:1}
     ],{duration:1000,easing:'cubic-bezier(.45,0,.2,1)',fill:'forwards'});
     await anim.finished.catch(()=>{});
-  }finally{g.remove();STL.flying=null;drawSlots()}
+  }finally{g.remove();STL.flying=null}
 }
 // Комбо, собранное украденными картами, засчитывается вору (мне — если я вор)
 function tryAttach(){
@@ -836,6 +849,31 @@ function tryAttach(){
     const ev=layX2(seqFinal('me')).ev.filter(e=>e.mem&&e.mem.some(m=>m.t[0]==='i'));
     if(ev.length){countCombo(ev.length);banner('✨ Комбо у тебя!','vil')}
   }
+}
+// Проигрывает слияния на стороне S по очереди. labelOf(e) — подпись под колесом на первом шаге.
+async function playFusions(S,list,ck,labelOf){
+  const sd=S==='me'?'m':'o';
+  for(const e of list){
+    const fx=chr(e.id);
+    OV={side:S,s:e.before};FZ=[];FN=-1;drawSlots();
+    $('wlab').textContent=labelOf(e);
+    await wait(1000);ck();
+    FK=e.id;FZ=e.src.map(i=>sd+i);drawSlots();banner(fx.e+' '+fx.n+' '+fx.e,'fz k'+(-e.id));
+    await wait(1900);ck();
+    OV={side:S,s:e.after};FZ=[];FN=sd+e.at;drawSlots();
+    $('wlab').textContent=fx.e+' '+fx.n+' · ⚔'+fx.a+' 🧠'+fx.t+' 🛡'+fx.d+' — освободившиеся слоты выбираются дальше';
+    await wait(1100);ck();
+  }
+  OV=null;FZ=[];FN=-1;drawSlots();
+}
+// Союз злодеев: подсветка и баннер на стороне S по итоговой раскладке post
+async function playUnion(S,post,ck){
+  const sd=S==='me'?'m':'o';
+  HL=post.map((v,i)=>VIL.includes(v)?sd+i:null).filter(Boolean);drawSlots();
+  banner('🦹 Злодейский союз: каждому +4⚔ +2🧠 +3🛡','vil');
+  $('wlab').textContent='🦹 Злодейский союз! Каждому злодею +4 ⚔ +2 🧠 +3 🛡';
+  await wait(1800);ck();
+  HL=[];drawSlots();
 }
 async function reveal(side,card){
   const ep=epoch,sd=side==='me'?'m':'o';
@@ -851,32 +889,38 @@ async function reveal(side,card){
     if(land&&land.j===j){
       // карта встала в слот, выбранный вором: до слияния показываем её в слоте и переносим к вору целиком
       if(side==='me'&&j>=ccDone){ccDone=j+1;snapSave()}
+      const T=side==='me'?'opp':'me';
+      // полёт начинается сейчас: до него карты у вора ещё нет (иначе она появится у вора раньше полёта)
+      STL.flying=T;
+      const preT=layX2(seqDisp(T)).s;
       const pre=layX2(shown[side].slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
       pre[land.k]=card;
       OV={side,s:pre};
       drawSlots();
       await stealFly(side,land);ck();
       OV=null;
+      // у вора карта видна сразу после полёта; если он уже вскрыл всё, её слияния и союз показываем сейчас
+      const RT=layX2(seqDisp(T)),postT=RT.s;
+      const fuseT=RT.ev.filter(e=>String(e.tok)[0]==='i');
+      if(fuseT.length)await playFusions(T,fuseT,ck,()=>'🦹 Украденная карта складывается с картами вора');
+      else drawSlots();
+      const vilT=VIL.every(v=>postT.includes(v))&&!VIL.every(v=>preT.includes(v));
+      if(vilT){
+        if(T==='me')countCombo(1);
+        await playUnion(T,postT,ck);
+      }
       tryAttach();
       drawSlots();
       animating=false;update();return;
     }
-    const R=layX2(seqDisp(side)),post=R.s,evs=R.ev.filter(e=>e.tok==='o'+j);
+    const R=layX2(seqDisp(side)),post=R.s;
+    const evs=R.ev.filter(e=>e.tok==='o'+j);
+    // слияния, которые становятся видны сейчас: своя карта j и, когда вор вскрыл всё, слияния с украденной картой
+    const fuse=R.ev.filter(e=>e.tok==='o'+j||String(e.tok)[0]==='i');
     const vilNow=VIL.every(v=>post.includes(v))&&!VIL.every(v=>prev.includes(v));
     if(side==='me'){if(j>=ccDone){if(evs.length||vilNow)countCombo(evs.length+(vilNow?1:0));ccDone=j+1;snapSave()}}
-    if(evs.length){
-      for(const e of evs){
-        const fx=chr(e.id);
-        OV={side,s:e.before};FZ=[];FN=-1;drawSlots();
-        $('wlab').textContent=x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d;
-        await wait(1000);ck();
-        FK=e.id;FZ=e.src.map(i=>sd+i);drawSlots();banner(fx.e+' '+fx.n+' '+fx.e,'fz k'+(-e.id));
-        await wait(1900);ck();
-        OV={side,s:e.after};FZ=[];FN=sd+e.at;drawSlots();
-        $('wlab').textContent=fx.e+' '+fx.n+' · ⚔'+fx.a+' 🧠'+fx.t+' 🛡'+fx.d+' — освободившиеся слоты выбираются дальше';
-        await wait(1100);ck();
-      }
-      OV=null;FZ=[];FN=-1;drawSlots();
+    if(fuse.length){
+      await playFusions(side,fuse,ck,e=>String(e.tok)[0]==='i'?'🦹 Украденная карта складывается с картами вора':x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d);
     }else drawSlots();
     if(vilNow){
       HL=post.map((v,i)=>VIL.includes(v)?sd+i:null).filter(Boolean);drawSlots();
@@ -884,7 +928,7 @@ async function reveal(side,card){
       $('wlab').textContent='🦹 Злодейский союз! Каждому злодею +4 ⚔ +2 🧠 +3 🛡';
       await wait(1800);ck();
       HL=[];drawSlots();
-    }else if(!evs.length)$('wlab').textContent=x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d;
+    }else if(!fuse.length)$('wlab').textContent=x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d;
     tryAttach();
     animating=false;update();
   }catch(e){OV=null;FZ=[];FN=-1;HL=[];STL.flying=null;if(e!=='x'){animating=false;console.error(e)}}
@@ -1767,7 +1811,7 @@ function renderFr(){
 }
 const NF={req:{},inv:{}};let curInvite=null;
 function renderReq(v){NF.req=v;updateNotif()}
-function updMail(){$('mail').classList.toggle('off',!(me&&$('game').classList.contains('hide')));$('book').classList.toggle('off',!$('game').classList.contains('hide'))}
+function updMail(){const inG=!$('game').classList.contains('hide')||!!$('game').dataset.s;$('mail').classList.toggle('off',inG||!me);$('book').classList.toggle('off',inG)}
 function updateNotif(){
   const now=Date.now(),rq=Object.entries(NF.req),iv=Object.entries(NF.inv).filter(([k,v])=>v&&now-v.t<120000),n=rq.length+iv.length;
   $('mailN').textContent=n;$('mailN').style.display=n?'block':'none';
