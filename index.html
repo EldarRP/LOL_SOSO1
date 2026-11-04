@@ -237,6 +237,7 @@ textarea.in{resize:none;font-family:inherit}
     <button class="btn sec" id="aGuest">Играть без аккаунта</button>
   </div>
   <div id="home" class="hide">
+    <div id="retBox" style="display:none;margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--card);border:1px solid var(--ac);flex-direction:column;gap:6px"><div id="retSub" class="pw" style="margin:0"></div><div style="display:flex;gap:8px;align-items:center"><button class="btn" id="retGo" style="margin:0;flex:1;padding:10px;font-size:13px">⚔ Вернуться в бой</button><button class="dbtn" id="retX" style="padding:8px 12px" aria-label="Выйти из боя">✕</button></div></div>
     <div id="gName"><input class="in" id="nameIn" maxlength="16" placeholder="Твоё имя"></div>
     <div id="acc" class="hide"><div id="hiNick" style="font-weight:800;font-size:20px"></div><div id="hiStat" class="pw"></div></div>
     <button class="btn" id="start">Начать играть</button>
@@ -388,7 +389,19 @@ function banner(t,c){const b=document.createElement('div');b.className='fzban '+
 const rar=i=>{if(i<0)return 4;const x=CH[i],v=x.a+x.t+x.d;return v>=24?4:v>=17?3:v>=12?2:1};
 const $=id=>document.getElementById(id);
 const H=64;
-const ME={id:Math.random().toString(36).slice(2,8),name:'Пони-'+Math.floor(100+Math.random()*900)};
+// ID игрока хранится в sessionStorage: у каждой вкладки свой ID,
+// а перезагрузка страницы в той же вкладке его сохраняет (нужно для возврата в бой).
+function loadPlayerId(){
+  const fresh=()=>Math.random().toString(36).slice(2,8);
+  try{
+    const saved=sessionStorage.getItem('mlpid');
+    if(saved&&/^[a-z0-9]{1,12}$/.test(saved))return saved;
+    const id=fresh();
+    sessionStorage.setItem('mlpid',id);
+    return id;
+  }catch(e){return fresh()}
+}
+const ME={id:loadPlayerId(),name:'Пони-'+Math.floor(100+Math.random()*900)};
 let subbed=0,L=null,G=null,roomName='',opp=null,joining=false,searching=false;
 let myCards=[],shown={me:[],opp:[]},animating=false,coinDone=false,battleStarted=false,story='',storyAsked=false,gone=false;
 const hash=s=>{let h=7;for(const c of s)h=(h*31+c.charCodeAt(0))>>>0;return h};
@@ -626,7 +639,7 @@ async function battle0(ep){
   else setTimeout(()=>{if(ep===epoch)finish('Волны улеглись: победила команда, которая оказалась сильнее.')},30000);
   setMsg('Все карты выбраны');
   await wk(ep,2000);
-  stage='battle';stgOff('wheelWrap');
+  stage='battle';stgOff('wheelWrap');snapSave();
   await wk(ep,1100);
   stgOn('water');
   setMsg('Идёт бой — ИИ размышляет<span class="dots"></span>');
@@ -646,7 +659,7 @@ async function askStory(ep){
 function finish(t){
   if(finished)return;
   if(!fieldReady){pendingStory=t;return}
-  finished=true;endMatch();
+  finished=true;G.presence({over:round,c:1,w:meWin?ME.id:oppId});endMatch();
   setMsg('');
   pop($('res'));
   recordResult();
@@ -663,6 +676,13 @@ function showStory(){const s=(opp&&opp.story)||'';if(s)finish(s)}
 function onOpp(p){
   const prev=opp;
   opp=p?{...p.presence}:null;
+  // Раунды разошлись: соперник уже начал новый раунд, а мы нажали «Играть снова», пока были без связи — догоняем его
+  if(opp&&opp.id&&finished&&!gone&&!oppLeft&&myState.rm===1&&(opp.rd||0)===round+1){
+    const np={...opp};newRound();
+    // newRound() обнуляет данные соперника — возвращаем то, что он уже успел выбрать в новом раунде
+    opp.cards=np.cards||[];opp.deb=np.deb||null;opp.story=np.story||null;
+    update();return
+  }
   if(opp&&opp.id&&(opp.rd||0)!==round)opp={id:opp.id,name:opp.name,uid:opp.uid,cards:[],rd:opp.rd||0,rm:0};
   if(opp&&opp.id)oppLeft=false;else if(prev)oppLeft=true;
   if(!opp||!opp.id){
@@ -697,7 +717,8 @@ async function startGame(){
     G.presence({deb:myDeb});update();
   };
   beginMatch();
-  flow();
+  const rs=resumeSnap;resumeSnap=null;clearTimeout(resumeTimer);resumeTimer=null;
+  if(rs)resumeStage(rs.stage);else flow();
 }
 let round=0,baseRoom='',oppLeft=false;
 function rematchUI(){
@@ -739,7 +760,7 @@ function toSpin(){const ep=epoch;toSpin0(ep).catch(guard)}
 function battle(){const ep=epoch;battle0(ep).catch(guard)}
 async function flow0(ep){
   const f=firstId()===ME.id;
-  stage='coin';lock=true;
+  stage='coin';lock=true;snapSave();
   $('coinBox').firstChild.classList.add('go');stgOn('coinBox');
   setMsg('Подбрасываем монетку…');
   await wk(ep,1700);
@@ -749,12 +770,11 @@ async function flow0(ep){
   await wk(ep,650);
   stgOn('cMe');stgOn('cOpp');
   await wk(ep,700);
-  coinDone=true;stage='deb';lock=false;update();
+  coinDone=true;stage='deb';lock=false;snapSave();update();
 }
 async function toSpin0(ep){
   if(stage!=='deb')return;
-  stage='trans';lock=true;
-  armLoss(); // оба выбрали ухудшения — с этого момента выход = поражение
+  stage='trans';lock=true;snapSave();
   stgOff('dbPick');stgOff('dbWait');setMsg('');
   $('cOpp').classList.remove('pick');
   $('pMe').classList.remove('turn');$('pOpp').classList.remove('turn');
@@ -762,7 +782,7 @@ async function toSpin0(ep){
   drawSlots();idleStrip();
   stgOn('wheelWrap');
   await wk(ep,1000);
-  stage='spin';lock=false;update();
+  stage='spin';lock=false;snapSave();update();
 }
 
 // ===== Сеть: публичные MQTT-брокеры (бесплатно, без регистрации и настройки) =====
@@ -822,15 +842,32 @@ function connect(will){
   });
 }
 const pub=(t,o,retain)=>cli&&cli.publish(P+t,o===''?'':JSON.stringify(o),{retain:!!retain});
-G={presence:patch=>{Object.assign(myState,patch);pub('g/'+sid+'/p/'+ME.id,myState,true)}};
+// ===== Снимок боя в sessionStorage (для возврата в бой после перезагрузки) =====
+// Брокер стирает наш статус при обрыве, поэтому свои карты и ухудшения сохраняем у себя.
+// Снимок пишется только во время боя и удаляется при окончании боя или выходе.
+const SNAP_KEY='mlpsnap';
+function snapSave(){
+  if(!matchLive||finished||!sid){snapClear();return}
+  try{
+    sessionStorage.setItem(SNAP_KEY,JSON.stringify({
+      t:Date.now(),
+      sid,baseRoom,round,roomName,mode:MODE,stage,
+      me:{id:ME.id,name:ME.name,uid:(me&&me.uid)||'',cards:myCards,deb:myDeb},
+      opp:{id:oppId,name:(opp&&opp.name)||'',uid:(opp&&opp.uid)||''}
+    }));
+  }catch(e){}
+}
+function snapClear(){try{sessionStorage.removeItem(SNAP_KEY)}catch(e){}}
+G={presence:patch=>{Object.assign(myState,patch);pub('g/'+sid+'/p/'+ME.id,myState,true);snapSave()}};
 const myWill=()=>({topic:P+'g/'+sid+'/p/'+ME.id,payload:'',retain:true});
 // Пустой статус (Will брокера) не даёт победу сразу: соперник мог просто потерять связь. Ждём OPP_GRACE на возврат.
 const OPP_GRACE=15000;
 let oppGoneT=null;
 function oppGone(now){
-  clearTimeout(oppGoneT);oppGoneT=null;
+  clearTimeout(oppGoneT);oppGoneT=null;stopOppWait();
   if(now||!matchLive||finished){onOpp(null);return}
-  oppGoneT=setTimeout(()=>{oppGoneT=null;onOpp(null)},OPP_GRACE);
+  oppWaitShow(Date.now()+OPP_GRACE);
+  oppGoneT=setTimeout(()=>{oppGoneT=null;stopOppWait();onOpp(null)},OPP_GRACE);
 }
 function onGameMsg(t,m){
   const pre=P+'g/'+sid+'/p/';
@@ -842,7 +879,7 @@ function onGameMsg(t,m){
     if(!s){oppGone(false);return}
     const pr=JSON.parse(s);
     if(pr&&pr.bye){oppGone(true);return}   // явный выход соперника — засчитываем сразу
-    clearTimeout(oppGoneT);oppGoneT=null;
+    clearTimeout(oppGoneT);oppGoneT=null;stopOppWait();
     onOpp({presence:pr});
   }catch(e){}
 }
@@ -934,23 +971,10 @@ async function tryJoin(id,x){
 }
 $('cancel').onclick=()=>cancelWait(waitBack);
 
-// ===== Защита от выхода: вышедший получает поражение сразу, оставшийся — победу =====
-// Вышедший: если закрыл вкладку или пропала связь, сервер Firebase сам записывает поражение (onDisconnect).
-// Оставшийся: узнаёт о выходе по MQTT (пустой презенс) или по статусу соперника в Firebase.
-let matchLive=false,lossArmed=false,oppFbRef=null,oppFbCb=null,oppFbOnline=true;
-function armLoss(){
-  if(!me||!fdb||lossArmed)return;
-  const ref=fdb.ref('users/'+me.uid+'/losses');
-  ref.once('value').then(s=>{
-    if(!matchLive)return;
-    ref.onDisconnect().set((s.val()||0)+1);
-    lossArmed=true;
-  }).catch(()=>{});
-}
-function disarmLoss(){
-  if(lossArmed&&me&&fdb){try{fdb.ref('users/'+me.uid+'/losses').onDisconnect().cancel()}catch(e){}}
-  lossArmed=false;
-}
+// ===== Выход из боя =====
+// Обрыв связи бой не завершает: соперник ждёт OPP_GRACE на возврат.
+// Поражение записывается при явном выходе (крестик), а если соперник не вернулся в срок, победа засчитывается оставшемуся.
+let matchLive=false,oppFbRef=null,oppFbCb=null,oppFbOnline=true;
 function watchOpp(){
   unwatchOpp();
   if(!fdb||!opp||!opp.uid)return;
@@ -967,15 +991,15 @@ function unwatchOpp(){
   oppFbRef=null;oppFbCb=null;
 }
 function beginMatch(){
-  matchLive=true;
+  matchLive=true;snapSave();
   if(me)myState.uid=me.uid;
-  watchOpp(); // armLoss() включается позже — когда оба выбрали ухудшения (см. toSpin0)
+  watchOpp();
   $('quit').classList.remove('hide');
 }
 function endMatch(){
-  clearTimeout(oppGoneT);oppGoneT=null;
+  snapClear();
+  clearTimeout(oppGoneT);oppGoneT=null;stopOppWait();
   matchLive=false;
-  disarmLoss();
   unwatchOpp();
   $('quit').classList.add('hide');
 }
@@ -984,6 +1008,7 @@ function forfeitWin(counted){
   if(!matchLive||finished)return;
   epoch++;
   finished=true;gone=true;
+  G.presence({over:round,c:counted?1:0,w:counted?ME.id:''});
   endMatch();
   setMsg('');
   pop($('res'));
@@ -1017,6 +1042,109 @@ function countCombo(n){
   if(me&&fdb)fdb.ref('users/'+me.uid+'/combos').transaction(v=>(v||0)+(n||1));
 }
 
+
+// ===== Возврат в бой после перезагрузки страницы =====
+// Окно возврата: соперник узнаёт о разрыве не раньше чем через ~30 с (брокер ждёт keepalive) и ждёт ещё OPP_GRACE.
+const RETURN_WINDOW=OPP_GRACE+30000;
+let retSnap=null,retPres=null,resumeSnap=null,resumeTimer=null,oppWaitTick=null;
+// Отсчёт у соперника, пока игрок переподключается
+function oppWaitShow(until){
+  stopOppWait();
+  const tick=()=>setMsg('Соперник переподключается… осталось '+Math.max(0,Math.ceil((until-Date.now())/1000))+' с');
+  tick();oppWaitTick=setInterval(tick,500);
+}
+function stopOppWait(){if(oppWaitTick){clearInterval(oppWaitTick);oppWaitTick=null}}
+function snapRead(){try{return JSON.parse(sessionStorage.getItem(SNAP_KEY)||'null')}catch(e){return null}}
+// При перезагрузке время снимка обновляется: окно возврата считается от момента выхода
+addEventListener('pagehide',()=>{const s=snapRead();if(s){s.t=Date.now();try{sessionStorage.setItem(SNAP_KEY,JSON.stringify(s))}catch(e){}}});
+// Пока идёт бой, время снимка обновляется само: на телефонах pagehide срабатывает не всегда
+setInterval(()=>{if(matchLive&&!finished&&sid)snapSave()},10000);
+function showRetBox(){const el=$('retBox');el.style.display='flex';el.classList.remove('fadein');void el.offsetWidth;el.classList.add('fadein')}
+function hideRetBox(){$('retBox').style.display='none'}
+// Результат, который уже записал соперник (поле over в его статусе): свою часть засчитываем по правилам
+function applyDecided(pr){
+  snapClear();
+  if(pr&&pr.c&&pr.w){meWin=pr.w===ME.id;recordResult();return meWin?'Прошлый бой засчитан тебе как победа':'Прошлый бой засчитан как поражение'}
+  return 'Прошлый бой уже завершён — результат не засчитан';
+}
+// Продолжение с сохранённой стадии: монетку заново не бросаем, если она уже решена
+function resumeStage(st){
+  if(st==='init'||st==='coin'){flow();return}
+  coinDone=true;lock=false;
+  stgOn('cMe');stgOn('cOpp');
+  if(st==='trans'||st==='deb'){stage='deb';if(myDeb)$('dbOk').disabled=true}
+  else{stage='spin';battleStarted=false;stgOn('wheelWrap')}   // spin и battle: карты открываются заново, бой пересчитается
+  update();
+}
+function resumeFail(msg){
+  clearTimeout(resumeTimer);resumeTimer=null;resumeSnap=null;
+  snapClear();
+  leaveGame();
+  err(msg);
+}
+function resumeDecided(pr){
+  clearTimeout(resumeTimer);resumeTimer=null;resumeSnap=null;
+  const txt=applyDecided(pr);
+  leaveGame();
+  err(txt);
+}
+async function resumeMatch(snap){
+  hideRetBox();retSnap=null;
+  sid=snap.sid;baseRoom=snap.baseRoom||'';round=snap.round||0;roomName=snap.roomName||sid;
+  MODE=snap.mode==='real'?'real':'arcade';oppId=snap.opp.id;
+  myCards=Array.isArray(snap.me.cards)?snap.me.cards:[];myDeb=snap.me.deb||null;
+  Object.assign(myState,{cards:myCards,deb:myDeb,rd:round,rm:0,story:null,uid:me?me.uid:''});
+  resumeSnap=snap;waitBack='home';
+  show('waitBox');$('waitTxt').innerHTML='Возвращаемся в бой<span class="dots"></span>';
+  try{cli=await connect(myWill())}catch(e){resumeFail('Нет связи: '+e.message);return}
+  cli.on('message',(t,m)=>{
+    if(resumeSnap&&t===P+'g/'+sid+'/p/'+oppId){
+      try{const pr=JSON.parse(m.toString());if(pr&&pr.over===round){resumeDecided(pr);return}}catch(e){}
+    }
+    onGameMsg(t,m);
+  });
+  cli.subscribe(P+'g/'+sid+'/p/+');
+  G.presence({});
+  resumeTimer=setTimeout(()=>{resumeTimer=null;if(resumeSnap)resumeFail('Соперник уже не в бою — результат не засчитан')},8000);
+}
+// Проверка при загрузке: плашку показываем, только если снимок свежий и соперник ещё в бою
+async function checkReturn(){
+  const snap=snapRead();
+  if(!snap)return;
+  if(!snap.me||!snap.opp||!snap.opp.id||snap.me.id!==ME.id||Date.now()-snap.t>RETURN_WINDOW){snapClear();return}
+  let c;try{c=await connect()}catch(e){return}
+  const topic=P+'g/'+snap.sid+'/p/'+snap.opp.id;
+  const pres=await new Promise(res=>{
+    const tm=setTimeout(()=>res(null),3000);
+    c.on('message',(t,m)=>{if(t!==topic)return;clearTimeout(tm);try{res(m.toString()?JSON.parse(m.toString()):null)}catch(e){res(null)}});
+    c.subscribe(topic);
+  });
+  try{c.end(true)}catch(e){}
+  if(matchLive||sid)return;
+  if(!pres){snapClear();return}
+  if(pres.over===snap.round){err(applyDecided(pres));return}
+  retSnap=snap;retPres=pres;
+  $('retSub').textContent='Бой с '+(snap.opp.name||'соперником')+' не завершён';
+  showRetBox();
+}
+// Крестик на плашке: тот же результат, что и у крестика в бою
+async function dismissReturn(){
+  const snap=retSnap;if(!snap)return;
+  const counted=!!(snap.me.deb&&retPres&&retPres.deb);
+  if(!confirm(counted?'Выйти из боя? Это засчитает поражение.':'Выйти из боя? Ухудшения ещё не выбраны — результат не засчитается.'))return;
+  hideRetBox();retSnap=null;retPres=null;snapClear();
+  if(counted){meWin=false;recordResult()}
+  try{
+    const c=await connect();
+    const topic=P+'g/'+snap.sid+'/p/'+ME.id;
+    c.publish(topic,JSON.stringify({bye:1}));
+    c.publish(topic,'',{retain:true});
+    setTimeout(()=>{try{c.end(true)}catch(e){}},300);
+  }catch(e){}
+}
+$('retGo').onclick=()=>{if(retSnap)resumeMatch(retSnap)};
+$('retX').onclick=dismissReturn;
+setTimeout(checkReturn,300);
 
 // ===== Аккаунты (Firebase Auth + Realtime Database) =====
 // Вставь свои данные: Firebase -> Project settings -> Your apps -> Web app
@@ -1322,6 +1450,7 @@ $('pfRename').onclick=async()=>{
 };
 let waitBack='menu',joinTimer=null,duelTimer=null;
 function cancelWait(back){
+  if(resumeSnap){resumeSnap=null;snapClear();clearTimeout(resumeTimer)}
   clearTimeout(joinTimer);clearTimeout(duelTimer);clearInterval(hb);
   try{if(curInvite){curInvite.off();curInvite.remove()}}catch(e){}
   curInvite=null;
