@@ -772,8 +772,7 @@ async function toSpin0(ep){
   stage='spin';lock=false;snapSave();update();
 }
 
-// ===== Сеть: публичные MQTT-брокеры (бесплатно, без регистрации и настройки) =====
-const BROKERS=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081','wss://broker-cn.emqx.io:8084/mqtt'];
+// ===== Сеть: Firebase Realtime Database =====
 const P='mlparena7/';
 let cli=null,sid='',oppId='',hb=null,servers={},rt=null,myState={id:ME.id,name:ME.name,cards:[]};
 const err=t=>{$('err').textContent=t||''};
@@ -791,46 +790,118 @@ function show(id){
   $('lobby').classList.add('busy');$(cur).classList.add('scrOut');
   setTimeout(()=>{if(tk!==showTk)return;$(cur).classList.remove('scrOut');enter()},190);
 }
-let mqttP=null;
-function loadMqtt(){
-  if(window.mqtt)return Promise.resolve();
-  if(mqttP)return mqttP;
-  const urls=['https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://fastly.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://gcore.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js','https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js'];
-  mqttP=new Promise((res,rej)=>{
-    let i=0;
-    const next=()=>{
-      if(i>=urls.length){mqttP=null;return rej(new Error('не удалось загрузить сетевую библиотеку (попробуй другую сеть или VPN)'))}
-      const sc=document.createElement('script');sc.src=urls[i++];
-      sc.onload=()=>window.mqtt?res():next();sc.onerror=next;document.head.append(sc);
-    };
-    next();
-  });
-  return mqttP;
+// Транспорт: Firebase Realtime Database. Комнаты и присутствие лежат в базе по путям mla/…,
+// топики 'mlparena7/…' из прежнего кода переводятся в пути. NetClient повторяет прежний интерфейс
+// (subscribe / publish / on('message') / end), поэтому игровая логика не меняется.
+// Свои записи (статус в бою, объявление сервера) база снимает сама при обрыве (onDisconnect).
+// Пока игрок на связи, они переписываются каждые KEEP_MS: если база ошибочно сочла игрока оффлайн,
+// статус вернётся раньше окна возврата.
+const NET_ROOT='mla';
+const KEEP_MS=8000;
+const BYE_MS=2500;
+let authReadyP=null;
+function authReady(){
+  if(!authReadyP)authReadyP=new Promise(res=>{let off=null;off=auth.onAuthStateChanged(()=>{if(off)off();res()})});
+  return authReadyP;
 }
-loadMqtt().catch(()=>{});
+const myUid=()=>(auth&&auth.currentUser)?auth.currentUser.uid:'';
+const toPath=t=>NET_ROOT+'/'+t.slice(P.length);
+const netErr=e=>{if(/permission/i.test(String((e&&e.message)||e||'')))err('Нет доступа к серверу: в Firebase обнови правила (firebase_rules.json)')};
+class NetClient{
+  constructor(will){
+    this.will=will||null;
+    this.handlers=[];this.subs=new Map();this.own=new Map();this.armed=new Set();
+    this.up=false;this.dead=false;this.icCb=null;
+    this.keep=setInterval(()=>this.refresh(),KEEP_MS);
+  }
+  on(ev,fn){if(ev==='message')this.handlers.push(fn);return this}
+  emit(t,s){for(const fn of this.handlers){try{fn(t,{toString:()=>s})}catch(e){}}}
+  attach(onUp){
+    this.icRef=fdb.ref('.info/connected');
+    this.icCb=s=>{
+      if(this.dead)return;
+      this.up=s.val()===true;
+      if(this.up){this.armAll();onUp&&onUp()}
+    };
+    this.icRef.on('value',this.icCb,e=>netErr(e));
+  }
+  arm(path){this.armed.add(path);fdb.ref(path).onDisconnect().remove().catch(()=>{})}
+  armAll(){
+    if(this.will)this.arm(toPath(this.will.topic));
+    for(const [p,v] of this.own){this.arm(p);fdb.ref(p).set(v).catch(e=>netErr(e))}
+  }
+  refresh(){
+    if(!this.up||this.dead)return;
+    if(this.will)this.arm(toPath(this.will.topic));
+    for(const [p,v] of this.own){this.arm(p);fdb.ref(p).set(v).catch(()=>{})}
+  }
+  subscribe(topics){for(const t of [].concat(topics))this.sub(t)}
+  sub(topic){
+    if(this.dead||this.subs.has(topic))return;
+    const many=topic.endsWith('/+');
+    const base=many?topic.slice(0,-2):topic;
+    const ref=fdb.ref(toPath(base));
+    const seen=new Map();
+    let last=null;
+    const cb=s=>{
+      if(many){
+        const now=s.val()||{};
+        for(const k of Object.keys(now)){const j=JSON.stringify(now[k]);if(seen.get(k)!==j){seen.set(k,j);this.emit(base+'/'+k,j)}}
+        for(const k of [...seen.keys()])if(!(k in now)){seen.delete(k);this.emit(base+'/'+k,'')}
+        return;
+      }
+      const v=s.val(),j=v==null?'':JSON.stringify(v);
+      if(j===last)return;
+      if(last===null&&j===''){last='';return}
+      last=j;this.emit(topic,j);
+    };
+    ref.on('value',cb,e=>netErr(e));
+    this.subs.set(topic,()=>ref.off('value',cb));
+  }
+  publish(topic,s){
+    if(this.dead)return;
+    const path=toPath(topic);
+    if(s===''||s==null){this.own.delete(path);fdb.ref(path).remove().catch(e=>netErr(e));return}
+    let v;try{v=JSON.parse(s)}catch(e){v=s}
+    if(v&&typeof v==='object')v={...v,au:myUid()};
+    if(v&&typeof v==='object'&&v.bye){          // явный выход: соперник видит его сразу, запись потом удаляем
+      this.own.delete(path);
+      fdb.ref(path).set(v).catch(e=>netErr(e));
+      setTimeout(()=>{fdb.ref(path).remove().catch(()=>{})},BYE_MS);
+      return;
+    }
+    if(topic.startsWith(P+'srv/')||(topic.startsWith(P+'g/')&&topic.includes('/p/'))){this.own.set(path,v);this.arm(path)}
+    fdb.ref(path).set(v).catch(e=>netErr(e));
+  }
+  end(){
+    if(this.dead)return;this.dead=true;clearInterval(this.keep);
+    for(const off of this.subs.values()){try{off()}catch(e){}}
+    this.subs.clear();
+    try{this.icRef.off('value',this.icCb)}catch(e){}
+    for(const p of this.armed){try{fdb.ref(p).onDisconnect().cancel()}catch(e){}}
+    this.armed.clear();this.own.clear();this.handlers=[];
+  }
+}
+// Подключение: гостю сначала анонимный вход (база пускает только авторизованных), затем ждём связь с базой
 function connect(will){
-  return new Promise((res,rej)=>{
-    if(!window.mqtt){loadMqtt().then(()=>connect(will)).then(res,rej);return}
-    let i=0;const bad=[];
-    const next=()=>{
-      if(i>=BROKERS.length)return rej(new Error('нет связи с игровыми серверами ('+bad.join(', ')+'). Открой игру в обычном браузере (Chrome), а не внутри Claude.'));
-      const c=mqtt.connect(BROKERS[i++],{clientId:'mla'+Math.random().toString(36).slice(2,10),will,reconnectPeriod:2000,connectTimeout:6000,keepalive:20,resubscribe:true});
-      let ok=false,dead=false;
-      const fail=()=>{if(ok||dead)return;dead=true;bad.push(BROKERS[i-1].split('//')[1].split(':')[0]);clearTimeout(t);try{c.end(true)}catch(e){}next()};
-      const t=setTimeout(fail,7000);
-      c.on('connect',()=>{
-        if(dead)return;
-        if(!ok){ok=true;clearTimeout(t);res(c);return}
-        // Переподключились: подписки mqtt.js возобновляет сам, а соперник должен снова увидеть наш статус
-        if(c===cli&&sid&&oppId)G.presence({});
-      });
-      c.on('error',fail);c.on('close',fail);
-    };next();
+  return new Promise(async(res,rej)=>{
+    if(!fInit()){rej(new Error('сеть не настроена'));return}
+    try{
+      await authReady();
+      if(!auth.currentUser)await auth.signInAnonymously();
+    }catch(e){
+      rej(new Error(e&&e.code==='auth/operation-not-allowed'?'в Firebase не включён вход для гостей (Authentication → Sign-in method → Anonymous)':'не удалось войти как гость'));
+      return;
+    }
+    const c=new NetClient(will);
+    let done=false;
+    const to=setTimeout(()=>{if(!done){done=true;c.end();rej(new Error('нет связи с сервером'))}},9000);
+    c.attach(()=>{if(!done){done=true;clearTimeout(to);res(c)}});
   });
 }
 const pub=(t,o,retain)=>cli&&cli.publish(P+t,o===''?'':JSON.stringify(o),{retain:!!retain});
 // ===== Снимок боя в sessionStorage (для возврата в бой после перезагрузки) =====
-// Брокер стирает наш статус при обрыве, поэтому свои карты и ухудшения сохраняем у себя.
+// База стирает наш статус при обрыве, поэтому свои карты и ухудшения сохраняем у себя.
 // Снимок пишется только во время боя и удаляется при окончании боя или выходе.
 // Сколько моих карт уже обработано счётчиком комбо: при возврате последнее действие проигрывается заново, но комбо второй раз не засчитывается
 let ccDone=0;
@@ -851,7 +922,7 @@ function snapSave(){
 function snapClear(){try{localStorage.removeItem(snapKey())}catch(e){}}
 G={presence:patch=>{Object.assign(myState,patch);pub('g/'+sid+'/p/'+ME.id,myState,true);snapSave()}};
 const myWill=()=>({topic:P+'g/'+sid+'/p/'+ME.id,payload:'',retain:true});
-// Пустой статус (Will брокера) не даёт победу сразу: соперник мог просто потерять связь. Ждём OPP_GRACE на возврат.
+// Пустой статус (база снимает его при обрыве) не даёт победу сразу: соперник мог просто потерять связь. Ждём OPP_GRACE на возврат.
 const OPP_GRACE=15000;
 let oppGoneT=null;
 function oppGone(now){
@@ -869,6 +940,7 @@ function onGameMsg(t,m){
   try{
     if(!s){oppGone(false);return}
     const pr=JSON.parse(s);
+    if(pr&&!pr.cards)pr.cards=[];
     if(pr&&pr.bye){oppGone(true);return}   // явный выход соперника — засчитываем сразу
     clearTimeout(oppGoneT);oppGoneT=null;stopOppWait();
     onOpp({presence:pr});
@@ -908,8 +980,8 @@ $('doCreate').onclick=async()=>{
     onGameMsg(t,m);
   });
   cli.subscribe([P+'g/'+sid+'/join',P+'g/'+sid+'/p/+']);
-  const listing=()=>pub('srv/'+sid,{name,host:ME.name,hostId:ME.id,ph:pass?hs(pass):'',t:Date.now(),open:true,mode:MODE},true);
-  listing();hb=setInterval(listing,15000);
+  pub('g/'+sid+'/host',myUid());
+  pub('srv/'+sid,{name,host:ME.name,hostId:ME.id,ph:pass?hs(pass):'',open:true,mode:MODE},true);
   $('waitTxt').innerHTML='Сервер «'+name.replace(/[<>&]/g,'')+'» создан'+(pass?' 🔒':'')+'<br>'+modeLbl(MODE)+'<br>Ждём соперника<span class="dots"></span>';
 };
 
@@ -928,7 +1000,7 @@ $('goJoin').onclick=async()=>{
 };
 function renderList(){
   const el=$('srvList');
-  const items=Object.entries(servers).filter(([k,x])=>x&&x.open&&Math.abs(Date.now()-x.t)<60000);
+  const items=Object.entries(servers).filter(([k,x])=>x&&x.open);
   el.innerHTML='';
   if(!items.length){el.innerHTML='<div class="pw" style="margin:10px 0">Серверов пока нет. Создай свой!</div>';return}
   items.forEach(([id,x])=>{
@@ -1035,7 +1107,7 @@ function countCombo(n){
 
 
 // ===== Возврат в бой после перезагрузки страницы =====
-// Окно возврата = OPP_GRACE, отсчёт от выхода. При закрытии страницы брокер сразу видит обрыв и соперник начинает свои 15 с тоже сразу.
+// Окно возврата = OPP_GRACE, отсчёт от выхода. При закрытии страницы база сразу видит обрыв и соперник начинает свои 15 с тоже сразу.
 const RET_WAIT=800;
 // Снимок хранится дольше окна возврата, чтобы вернувшийся после 15 с узнал итог боя (если соперник успел его записать)
 const DECIDED_WINDOW=120000;
@@ -1204,7 +1276,6 @@ async function dismissReturn(){
     const c=await connect();
     const topic=P+'g/'+snap.sid+'/p/'+ME.id;
     c.publish(topic,JSON.stringify({bye:1}));
-    c.publish(topic,'',{retain:true});
     setTimeout(()=>{try{c.end(true)}catch(e){}},300);
   }catch(e){}
 }
@@ -1463,6 +1534,7 @@ async function duelHost(friendUid,friendNick,mode){
     onGameMsg(t,m);
   });
   cli.subscribe([P+'g/'+sid+'/join',P+'g/'+sid+'/p/+']);
+  pub('g/'+sid+'/host',myUid());
   try{
     curInvite=fdb.ref('invites/'+friendUid+'/'+me.uid);
     await curInvite.set({nick:me.nick,sid,hostId:ME.id,t:Date.now(),mode:MODE});
@@ -1529,7 +1601,7 @@ function cancelWait(back){
 function leaveGame(){
   endMatch();
   epoch++;
-  try{if(cli&&sid){pub('g/'+sid+'/p/'+ME.id,{bye:1});pub('g/'+sid+'/p/'+ME.id,'',true)}}catch(e){}
+  try{if(cli&&sid){pub('g/'+sid+'/p/'+ME.id,{bye:1})}}catch(e){}
   const c=cli;setTimeout(()=>{try{c&&c.end(true)}catch(e){}},300);
   cli=null;clearInterval(hb);sid='';oppId='';roomName='';
   try{if(curInvite){curInvite.off();curInvite.remove()}}catch(e){}curInvite=null;
@@ -1556,6 +1628,7 @@ if(fInit()){
   setTab(false);
   auth.onAuthStateChanged(u=>{
     if(regBusy)return;
+    if(u&&u.isAnonymous){meOff.forEach(f=>f());meOff=[];me=null;renderHome();if(scr==='')show('home');hideLoader();return}
     if(u)onUser(u);
     else{meOff.forEach(f=>f());meOff=[];me=null;renderHome();show('auth');hideLoader()}
   });
