@@ -115,6 +115,8 @@ textarea.in{resize:none;font-family:inherit}
 .dbtn.t0:not(.on){border-color:#3ecf8e99}.dbtn.t1:not(.on){border-color:#f2a90099}.dbtn.t2:not(.on){border-color:#ff4d4d99;background:#2a1418}
 .slot.dead{filter:grayscale(1);opacity:.45}
 .slot{padding:3px}
+#game[data-sz="4"] .slot{height:116px}
+#game[data-sz="5"] .slot{height:104px}
 
 .scrIn{animation:scrIn .32s ease both}@keyframes scrIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .scrOut{opacity:0!important;transform:translateY(-8px);transition:opacity .18s ease,transform .18s ease}
@@ -577,8 +579,8 @@ const hash=s=>{let h=7;for(const c of s)h=(h*31+c.charCodeAt(0))>>>0;return h};
 
 const face=(i,sz)=>{const x=chr(i);return `<div class="ph" style="width:${sz}px;height:${sz}px"><span>${x.e}</span><img src="${PHOTOS[x.id]||'img/'+x.id+'.jpg'}" alt="" onerror="if(!this.dataset.t){this.dataset.t=1;this.src='img/${x.id}.png'}else{this.remove()}"></div>`};
 const stat=(v,base,ic)=>`<span>${ic}${v<base?'<u>'+v+'</u>':v>base?'<s>'+v+'</s>':v}</span>`;
-const nMe=()=>3+((myDeb&&DB[myDeb.k]&&DB[myDeb.k].plus)?1:0);
-const nOp=()=>3+((opp&&opp.deb&&DB[opp.deb.k]&&DB[opp.deb.k].plus)?1:0);
+const nMe=()=>SIZE+((myDeb&&DB[myDeb.k]&&DB[myDeb.k].plus)?1:0);
+const nOp=()=>SIZE+((opp&&opp.deb&&DB[opp.deb.k]&&DB[opp.deb.k].plus)?1:0);
 const AFF=D=>!!(D&&(D.on||D.block));
 const xN=side=>{const d=side==='me'?myDeb:(opp&&opp.deb);return(d&&DB[d.k]&&DB[d.k].steal)?1:0};
 const nAll=side=>(side==='me'?nMe():nOp())+xN(side);
@@ -648,7 +650,7 @@ function drawSlots(){
     // украденная карта уже ушла из слота жертвы: под неё место не держим
     const gone=(rv()&&landDone(side))?removedOf(side).size:0;
     // украденная карта уже у вора, а его собственные карты ещё вытягиваются: показываем её сразу, последней в колонке
-    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):3;
+    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):SIZE;
     const n=base+pend.length+(STL.flying===side?1:0);
     const prev=DRAWN[id],now={},occ={},sd=side==='me'?'m':'o';
     // пустые слоты нумеруем с конца: когда сверху уходит карта или добавляется новая, серые слоты двигаются вместе с карточками
@@ -717,6 +719,11 @@ function markTargets(){
 const rnd=()=>Math.floor(Math.random()*CH.length);
 // ===== Режимы: arcade — карты выпадают случайно; real — взятая карта больше не выпадает сопернику =====
 let MODE='arcade';
+// Размер дуэли: 3, 4 или 5 карт на игрока (у обоих игроков одинаковый)
+let SIZE=3;
+const normSz=v=>{v=+v;return v===4||v===5?v:3};
+const szLbl=n=>normSz(n)+' на '+normSz(n);
+function setSize(n){SIZE=normSz(n);const g=document.getElementById('game');if(g)g.dataset.sz=SIZE}
 const MODES={
   arcade:{e:'🎡',n:'Аркадный',d:'Карты выпадают случайно. Одна и та же карта может достаться обоим игрокам. Комбо работают.'},
   real:{e:'🎯',n:'Реалистичный',d:'Забранная карта становится серой на рулетке и больше не выпадает сопернику: каждый герой достаётся только одному игроку. Комбо работают.'}
@@ -728,7 +735,7 @@ function pickCard(){
   const free=[];for(let i=0;i<CH.length;i++)if(!taken.has(i))free.push(i);
   return free.length?free[Math.floor(Math.random()*free.length)]:rnd();
 }
-function mkModeSel(el,init,cb){
+function mkModeSel(el,init,cb,szInit,szCb){
   el.innerHTML='';
   const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px';
   const ds=document.createElement('div');ds.className='pw';ds.style.cssText='margin-top:8px;min-height:54px;text-align:left';
@@ -740,6 +747,17 @@ function mkModeSel(el,init,cb){
     b.onclick=()=>set(k);btns[k]=b;row.append(b);
   }
   el.append(row,ds);set(init);
+  if(szCb){
+    const lb=document.createElement('div');lb.className='pw';lb.style.cssText='margin-top:10px;text-align:left;font-weight:700';lb.textContent='Количество карточек';
+    const sr=document.createElement('div');sr.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px';
+    const sb={};
+    const setS=n=>{szCb(n);for(const k in sb)sb[k].classList.toggle('on',+k===n)};
+    for(const n of [3,4,5]){
+      const b=document.createElement('button');b.type='button';b.className='dbtn';b.style.padding='10px 2px';
+      b.innerHTML='<b>'+n+' на '+n+'</b>';b.onclick=()=>setS(n);sb[n]=b;sr.append(b);
+    }
+    el.append(lb,sr);setS(normSz(szInit));
+  }
 }
 const RC={1:'#4a5565',2:'#2a6fa8',3:'#7a45bd',4:'#b8860b'};
 let rot=0;
@@ -1268,7 +1286,7 @@ function snapSave(){
   try{
     localStorage.setItem(snapKey(),JSON.stringify({
       t:Date.now(),tab:TAB,
-      sid,baseRoom,round,roomName,mode:MODE,stage,cc:ccDone,
+      sid,baseRoom,round,roomName,mode:MODE,sz:SIZE,stage,cc:ccDone,
       me:{id:ME.id,name:ME.name,uid:(me&&me.uid)||'',cards:myCards,deb:myDeb},
       opp:{id:oppId,name:(opp&&opp.name)||'',uid:(opp&&opp.uid)||''}
     }));
@@ -1311,12 +1329,12 @@ $('back1').onclick=()=>show('home');
 $('back2').onclick=()=>show('menu');
 function stopBrowse(){clearInterval(rt);if(cli){try{cli.end(true)}catch(e){}cli=null}}
 $('back3').onclick=()=>{stopBrowse();show('menu')};
-let crMode='arcade',dpMode='arcade';
-$('goCreate').onclick=()=>{show('create');$('srvName').value=ME.name+' — игра';mkModeSel($('modeCr'),crMode,m=>{crMode=m})};
+let crMode='arcade',dpMode='arcade',crSize=3,dpSize=3;
+$('goCreate').onclick=()=>{show('create');$('srvName').value=ME.name+' — игра';mkModeSel($('modeCr'),crMode,m=>{crMode=m},crSize,n=>{crSize=n})};
 
 // --- создать сервер ---
 $('doCreate').onclick=async()=>{
-  waitBack='menu';MODE=crMode;
+  waitBack='menu';MODE=crMode;setSize(crSize);
   const name=($('srvName').value.trim()||ME.name+' — игра').slice(0,30),pass=$('srvPass').value;
   sid=Math.random().toString(36).slice(2,10);roomName=sid;
   show('waitBox');$('waitTxt').innerHTML='Подключаемся<span class="dots"></span>';
@@ -1336,8 +1354,8 @@ $('doCreate').onclick=async()=>{
   });
   cli.subscribe([P+'g/'+sid+'/join',P+'g/'+sid+'/p/+']);
   pub('g/'+sid+'/host',myUid());
-  pub('srv/'+sid,{name,host:ME.name,hostId:ME.id,ph:pass?hs(pass):'',open:true,mode:MODE},true);
-  $('waitTxt').innerHTML='Сервер «'+name.replace(/[<>&]/g,'')+'» создан'+(pass?' 🔒':'')+'<br>'+modeLbl(MODE)+'<br>Ждём соперника<span class="dots"></span>';
+  pub('srv/'+sid,{name,host:ME.name,hostId:ME.id,ph:pass?hs(pass):'',open:true,mode:MODE,sz:SIZE},true);
+  $('waitTxt').innerHTML='Сервер «'+name.replace(/[<>&]/g,'')+'» создан'+(pass?' 🔒':'')+'<br>'+modeLbl(MODE)+' · '+szLbl(SIZE)+'<br>Ждём соперника<span class="dots"></span>';
 };
 
 // --- список серверов ---
@@ -1362,7 +1380,7 @@ function renderList(){
     const d=document.createElement('div');d.className='srv';
     const l=document.createElement('div');
     const b=document.createElement('b');b.textContent=x.name;
-    const sm=document.createElement('small');sm.textContent='Хозяин: '+x.host+' · '+modeLbl(x.mode);
+    const sm=document.createElement('small');sm.textContent='Хозяин: '+x.host+' · '+modeLbl(x.mode)+' · '+szLbl(x.sz);
     l.append(b,sm);d.append(l);
     const ic=document.createElement('span');ic.textContent=x.ph?'🔒':'▶';d.append(ic);
     d.onclick=()=>tryJoin(id,x);
@@ -1371,7 +1389,7 @@ function renderList(){
 }
 async function tryJoin(id,x){
   if(x.ph){const p=prompt('Пароль сервера «'+x.name+'»');if(p===null)return;if(hs(p)!==x.ph){err('Неверный пароль');return}}
-  MODE=x.mode==='real'?'real':'arcade';
+  MODE=x.mode==='real'?'real':'arcade';setSize(x.sz);
   stopBrowse();sid=id;roomName=id;oppId=x.hostId;waitBack=x.duel?'home':'browse';
   show('waitBox');$('waitTxt').innerHTML='Заходим на сервер<span class="dots"></span>';
   try{cli=await connect(myWill())}catch(e){show(x.duel?'home':'browse');err('Нет связи: '+e.message);return}
@@ -1564,7 +1582,7 @@ function resumeDecided(pr){
 async function resumeMatch(snap){
   hideRetBox();retSnap=null;
   sid=snap.sid;baseRoom=snap.baseRoom||'';round=snap.round||0;roomName=snap.roomName||sid;
-  MODE=snap.mode==='real'?'real':'arcade';oppId=snap.opp.id;
+  MODE=snap.mode==='real'?'real':'arcade';setSize(snap.sz);oppId=snap.opp.id;
   myCards=Array.isArray(snap.me.cards)?snap.me.cards:[];myDeb=snap.me.deb||null;
   Object.assign(myState,{cards:myCards,deb:myDeb,rd:round,rm:0,uid:me?me.uid:''});
   resumeSnap=snap;waitBack='home';
@@ -1843,11 +1861,11 @@ $('uprof').onclick=e=>{if(e.target===$('uprof'))closeProf()};
 let dpTarget=null;
 function askDuel(uid,nick){
   dpTarget={uid,nick};$('dpTitle').textContent='Вызвать '+nick;
-  mkModeSel($('modeDp'),dpMode,m=>{dpMode=m});
+  mkModeSel($('modeDp'),dpMode,m=>{dpMode=m},dpSize,n=>{dpSize=n});
   $('duelPick').classList.remove('hide');
 }
 $('dpCancel').onclick=()=>{$('duelPick').classList.add('hide');dpTarget=null};
-$('dpGo').onclick=()=>{const t=dpTarget;$('duelPick').classList.add('hide');dpTarget=null;if(t)duelHost(t.uid,t.nick,dpMode)};
+$('dpGo').onclick=()=>{const t=dpTarget;$('duelPick').classList.add('hide');dpTarget=null;if(t)duelHost(t.uid,t.nick,dpMode,dpSize)};
 function renderFr(){
   const el=$('fList');el.innerHTML='';
   const arr=Object.entries(FR).filter(([k,x])=>x.u).sort((a,b)=>(b[1].on?1:0)-(a[1].on?1:0));
@@ -1864,7 +1882,7 @@ function updateNotif(){
   updMail();
   const el=$('nList');el.innerHTML='';
   if(!n){el.innerHTML='<div class="pw" style="margin:14px 0">Уведомлений нет</div>';return}
-  iv.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'⚔ зовёт на поединок 1 на 1 · '+modeLbl(v.mode)},'Принять',()=>acceptInvite(v),'✕',()=>fdb.ref('invites/'+me.uid+'/'+from).remove())));
+  iv.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'⚔ зовёт на поединок 1 на 1 · '+modeLbl(v.mode)+' · '+szLbl(v.sz)},'Принять',()=>acceptInvite(v),'✕',()=>fdb.ref('invites/'+me.uid+'/'+from).remove())));
   rq.forEach(([from,v])=>el.append(card({nick:v.nick,bio:'👤 хочет добавить в друзья'},'Принять',()=>fdb.ref().update({['friends/'+me.uid+'/'+from]:true,['friends/'+from+'/'+me.uid]:true,['requests/'+me.uid+'/'+from]:null}),'✕',()=>fdb.ref('requests/'+me.uid+'/'+from).remove(),undefined,from)));
 }
 setInterval(()=>{if(me)updateNotif()},15000);
@@ -1881,10 +1899,10 @@ $('bookP').onclick=e=>{if(e.target===$('bookP'))togBook(false)};
 $('notif').onclick=e=>{if(e.target===$('notif'))togNotif(false)};
 function acceptInvite(v){
   togNotif(false);
-  tryJoin(v.sid,{hostId:v.hostId,ph:'',name:'дуэль',duel:true,mode:v.mode});
+  tryJoin(v.sid,{hostId:v.hostId,ph:'',name:'дуэль',duel:true,mode:v.mode,sz:v.sz});
 }
-async function duelHost(friendUid,friendNick,mode){
-  waitBack='friends';MODE=mode==='real'?'real':'arcade';
+async function duelHost(friendUid,friendNick,mode,sz){
+  waitBack='friends';MODE=mode==='real'?'real':'arcade';setSize(sz);
   sid=Math.random().toString(36).slice(2,10);roomName=sid;
   show('waitBox');$('waitTxt').innerHTML='Приглашаем '+friendNick.replace(/[<>&]/g,'')+'<br>Ждём ответа<span class="dots"></span>';
   try{cli=await connect(myWill())}catch(e){show('friends');err('Нет связи: '+e.message);return}
@@ -1903,7 +1921,7 @@ async function duelHost(friendUid,friendNick,mode){
   pub('g/'+sid+'/host',myUid());
   try{
     curInvite=fdb.ref('invites/'+friendUid+'/'+me.uid);
-    await curInvite.set({nick:me.nick,sid,hostId:ME.id,t:Date.now(),mode:MODE});
+    await curInvite.set({nick:me.nick,sid,hostId:ME.id,t:Date.now(),mode:MODE,sz:SIZE});
     curInvite.onDisconnect().remove();
     curInvite.on('value',s=>{if(!s.exists()&&!guest&&!declined){declined=true;err('Друг отклонил приглашение');setTimeout(()=>cancelWait('friends'),1600)}},e=>err('Не вижу ответ друга: обнови правила Firebase (раздел invites)'));
   }catch(e){err('Не удалось отправить приглашение: '+(e.message||e));return}
