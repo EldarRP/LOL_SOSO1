@@ -511,28 +511,44 @@ function landOfVictim(V){
   const d=T==='me'?myDeb:(opp&&opp.deb);
   if(!d||!DB[d.k]||!DB[d.k].steal||!d.slot)return null;
   const cards=cardsOf(V),k=d.slot-1;
-  // карта встаёт в первый свободный слот. Если выбранный слот так и не заполнился (слияния освободили место раньше),
-  // кража не пропадает: уходит ближайшая по месту карта. Правило детерминированно, поэтому у обоих игроков одинаково.
-  // Пока жертва вытянула не все карты, запасной вариант выбирать нельзя: нужный слот может заполниться следующей картой.
-  // Иначе кража «прилипала» к первой попавшейся карте, а потом перескакивала на другую.
+  // Карта встаёт в первый свободный слот. Если выбранный слот так и не заполнился,
+  // после заполнения поля кража достаётся ближайшей по месту карте.
+  // Если в момент кражи карта уже вошла в комбо, переносим комбо как одну сущность.
   const full=fill(cards)>=nSide(V);
+  const candidate=(j,pos)=>{
+    const R=layX2(cards.slice(0,j+1).map((c,t)=>({c,t:'o'+t})));
+    const at=R.st.findIndex(group=>group&&group.some(m=>m.t==='o'+j));
+    const members=at>=0?R.st[at]:[{c:cards[j],t:'o'+j}];
+    const card=at>=0&&R.s[at]!=null?R.s[at]:cards[j];
+    return {j,k:pos,at:at>=0?at:pos,members,card};
+  };
   let best=null;
   for(let j=0;j<cards.length;j++){
     const pre=layX2(cards.slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
     const p=pre.indexOf(null);
     const pos=p>=0?p:pre.length;
-    const cand={j,k:pos,members:[{c:cards[j],t:'o'+j}]};
+    const cand=candidate(j,pos);
     if(pos===k)return cand;
     if(full&&(!best||Math.abs(pos-k)<=Math.abs(best.k-k)))best=cand;
   }
   return best;
 }
 const removedOf=V=>new Set((landOfVictim(V)||{members:[]}).members.map(m=>m.t));
-const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?l.members.map((m,n)=>({c:m.c,t:'i'+n})):[]};
+// Украденное комбо передаётся одной готовой картой, а не отдельными исходными персонажами.
+const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?[{c:l.card,t:'i0'}]:[]};
 // карта уже улетела из слота жертвы (полёт завершён)
 const landDone=V=>{const l=landOfVictim(V);return !!l&&shown[V].length>l.j&&STL.flying!==(V==='me'?'opp':'me')};
 // все карты стороны вытянуты и она уже не ждёт спина
 const revealDone=S=>shown[S].length>=cardsOf(S).length&&fill(cardsOf(S))>=nSide(S);
+// Своих мест занято с учётом слияний (украденная карта уже не своя)
+function ownFill(S){
+  const rem=removedOf(S);
+  return layX2(cardsOf(S).map((c,t)=>({c,t:'o'+t})).filter(e=>!rem.has(e.t))).s.filter(c=>c!=null).length;
+}
+// Сколько своих мест должно быть занято: у жертвы на одно меньше (украденный слот уходит)
+const ownTarget=S=>nSide(S)-(landOfVictim(S)?1:0); // из поля уходит одна видимая карта: персонаж или целое комбо
+// Все места стороны заполнены с учётом комбо
+const boardDone=S=>ownFill(S)>=ownTarget(S);
 // что видно прямо сейчас: своя карта без украденных, плюс украденная — когда вор всё вытянул
 function seqDisp(S){
   const rem=landDone(S)?removedOf(S):new Set();
@@ -648,9 +664,9 @@ function drawSlots(){
     }
     const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
     // украденная карта уже ушла из слота жертвы: под неё место не держим
-    const gone=(rv()&&landDone(side))?removedOf(side).size:0;
+    const gone=(rv()&&landDone(side))?1:0; // украденная сущность занимает ровно один слот, даже если это комбо
     // украденная карта уже у вора, а его собственные карты ещё вытягиваются: показываем её сразу, последней в колонке
-    const base=rv()?(revealDone(side)?arr.length:Math.max(nSide(side)-gone,arr.length)):SIZE;
+    const base=rv()?Math.max(arr.length,nSide(side)-gone):SIZE;
     const n=base+pend.length+(STL.flying===side?1:0);
     const prev=DRAWN[id],now={},occ={},sd=side==='me'?'m':'o';
     // пустые слоты нумеруем с конца: когда сверху уходит карта или добавляется новая, серые слоты двигаются вместе с карточками
@@ -678,7 +694,6 @@ function drawSlots(){
         now[key]=f;
         return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(cI)}${still?' still':''}${dead?' dead':''}${cI<0?' fzc k'+(-cI):''}${FZ.includes(sd+i)?' fz k'+(-FK):''}${FN===sd+i?' fzn k'+(-FK):''}${HL.includes(sd+i)?' vil':''}">${cardHtml(side,i)}</div>`;
       }
-      if(i>=arr.length&&rv()&&revealDone(side))return '';
       const hit=dd&&!landDone(side)&&AFF(DB[dd.k])&&(DB[dd.k].all||dd.slot===i+1);
       return `<div class="slot${hit&&DB[dd.k].block?' dead':''}" data-i="${i+1}" data-key="${side}|ph|${phOrd(i)}"><div class="e" style="font-size:26px">?</div>карта ${i+1}${hit?`<div class="bd">${DB[dd.k].e} ${DB[dd.k].block?'выбыл':DB[dd.k].n}</div>`:''}</div>`;
     }).join('');
@@ -818,7 +833,7 @@ function spinTo(target){
 function ids(){return [ME.id,opp.id].sort()}
 function firstId(){return ids()[hash(roomName)%2]}
 function total(){return myCards.length+(opp?(opp.cards||[]).length:0)}
-function myTurn(){const firstMe=firstId()===ME.id;const fc=firstMe?fill(myCards):fill(opp.cards||[]);return firstMe?fc<nMe():(fc>=nOp()&&fill(myCards)<nMe())}
+function myTurn(){const firstMe=firstId()===ME.id;return firstMe?!boardDone('me'):(boardDone('opp')&&!boardDone('me'))}
 let stage='init',lock=true;
 const stgOn=id=>$(id).classList.remove('off'),stgOff=id=>$(id).classList.add('off');
 function setMsg(h){const m=$('msg');if(m.dataset.h===h)return;m.dataset.h=h;m.style.opacity=0;clearTimeout(m._t);m._t=setTimeout(()=>{m.innerHTML=h;m.style.opacity=h?1:0},260)}
@@ -863,22 +878,22 @@ function update(){
     if(myCards.length>shown.me.length){reveal('me',myCards[shown.me.length]);return}
     if(oc.length>shown.opp.length){reveal('opp',oc[shown.opp.length]);return}
   }
-  const allShown=!animating&&fill(shown.me)===nMe()&&fill(shown.opp)===nOp();
+  const allShown=!animating&&shown.me.length===myCards.length&&shown.opp.length===oc.length&&boardDone('me')&&boardDone('opp');
   if(allShown&&!battleStarted){battle();return}
   if(battleStarted)return;
   const mine=myTurn()&&shown.me.length===myCards.length&&shown.opp.length===oc.length;
   $('pMe').classList.toggle('turn',mine&&!animating);$('pOpp').classList.toggle('turn',!mine&&!animating);
-  $('spin').classList.toggle('hide',!(mine&&fill(myCards)<nMe()));
+  $('spin').classList.toggle('hide',!(mine&&!boardDone('me')));
   $('spin').disabled=animating;
   setMsg(animating?'Рулетка крутится…':mine?'Твой ход — крути!':'Ход соперника<span class="dots"></span>');
 }
 // Полёт украденной карты: целая карточка из слота жертвы в последний слот вора
 async function stealFly(V,l){
   const T=V==='me'?'opp':'me';
-  const val=layS(V)[l.k];
+  const val=layS(V)[l.at];
   STL.flying=T;
   drawSlots();
-  const srcEl=$(V==='me'?'cMe':'cOpp').querySelector('.slot[data-i="'+(l.k+1)+'"]');
+  const srcEl=$(V==='me'?'cMe':'cOpp').querySelector('.slot[data-i="'+(l.at+1)+'"]');
   if(srcEl)srcEl.style.visibility='hidden'; // карта целиком уходит из слота: место пустое, пока она летит
   const dsts=$(T==='me'?'cMe':'cOpp').querySelectorAll('.slot');
   const dstEl=dsts[dsts.length-1];
@@ -907,7 +922,9 @@ function tryAttach(){
   if(landOfVictim('opp')&&landDone('opp')&&revealDone('me')){
     STL.credited.me=true;
     const ev=layX2(seqFinal('me')).ev.filter(e=>e.mem&&e.mem.some(m=>m.t[0]==='i'));
-    if(ev.length){countCombo(ev.length);banner('✨ Комбо у тебя!','vil')}
+    const stolen= inboxOf('me').filter(e=>FUSALL.includes(e.c)).length;
+    const total=ev.length+stolen;
+    if(total){countCombo(total);banner('✨ Комбо у тебя!','vil')}
   }
 }
 // Проигрывает слияния на стороне S по очереди. labelOf(e) — подпись под колесом на первом шаге.
@@ -955,8 +972,9 @@ async function reveal(side,card){
       // полёт начинается сейчас: до него карты у вора ещё нет (иначе она появится у вора раньше полёта)
       STL.flying=T;
       const preT=layX2(seqDisp(T)).s;
-      const pre=layX2(shown[side].slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
-      pre[land.k]=card;
+      // Показываем фактическую сущность, которая улетает: если текущая карта завершила комбо,
+      // на поле уже стоит готовое комбо, и именно оно переносится целиком.
+      const pre=layX2(shown[side].slice(0,j+1).map((c,t)=>({c,t:'o'+t}))).s;
       OV={side,s:pre,steal:1};
       drawSlots();
       await stealFly(side,land);ck();
@@ -996,7 +1014,7 @@ async function reveal(side,card){
   }catch(e){OV=null;FZ=[];FN=-1;HL=[];STL.flying=null;if(e!=='x'){animating=false;console.error(e)}}
 }
 $('spin').onclick=()=>{
-  if(lock||stage!=='spin'||animating||!myTurn()||fill(myCards)>=nMe())return;
+  if(lock||stage!=='spin'||animating||!myTurn()||boardDone('me'))return;
   myCards=[...myCards,pickCard()];$('spin').disabled=true;
   G.presence({cards:myCards});update();
 };
