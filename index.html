@@ -554,7 +554,7 @@ function drawSlots(){
     const arr=layS(side);
     const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
     const pn=side==='me'?nMe():nOp();
-    const n=rv()?nAll(side):3;
+    const n=rv()?pn+((xN(side)&&(STLFLY[side]||extraCard(side,1)!=null))?1:0):3;
     const prevSig=DRAWN[id]||[],nowSig=[];
     $(id).innerHTML=Array.from({length:n},(_,i)=>i).map(i=>{
       const cI=i<pn?arr[i]:(i===pn&&!STLFLY[side]?extraCard(side,1):null);
