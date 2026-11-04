@@ -927,6 +927,7 @@ async function reveal(side,card){
     const prev=layX2(seqDisp(side)).s;
     const prevEv=new Set(layX2(seqDisp(side)).ev.map(evKey));
     shown[side].push(card);
+    if(MODE==='real')idleStrip();   // выпавшая карта сразу гаснет на рулетке
     const j=shown[side].length-1,x=CH[card];
     const land=landOfVictim(side);
     if(land&&land.j===j){
@@ -1545,6 +1546,7 @@ function prefillShown(){
   const allDone=fill(myCards)>=nMe()&&fill(oc)>=nOp();
   if(!allDone){let last=null;for(const [sd,arr] of seq)if(arr.length)last=sd;if(last)shown[last].pop()}
   OV=null;FZ=[];FN=-1;HL=[];STL.flying=null;
+  idleStrip();
   drawSlots();drawSlots();   // второй вызов помечает слоты «уже стоят» — без появления с эффектом
 }
 function resumeFail(msg){
