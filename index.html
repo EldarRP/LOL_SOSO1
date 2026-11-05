@@ -2111,15 +2111,6 @@ async function renameNick(nn){
   await fdb.ref('users/'+me.uid+'/nick').set(nn);
   if(lo!==old){try{await fdb.ref('nicks/'+old).remove()}catch(e){}}
 }
-$('pfRename').onclick=async()=>{
-  const nn=$('pfNew').value.trim(),m=$('pfMsg');
-  if(!nickOk(nn)){m.textContent='Ник: 3–12 символов, буквы, цифры или _';return}
-  if(nn===me.nick){m.textContent='Это уже твой ник';return}
-  $('pfRename').disabled=true;m.textContent='';
-  try{await renameNick(nn);m.textContent='Ник изменён ✓';$('pfNew').value=''}
-  catch(e){m.textContent=e.msg||('Ошибка: '+(e.message||e))}
-  $('pfRename').disabled=false;
-};
 let waitBack='menu',joinTimer=null,duelTimer=null;
 function cancelWait(back){
   if(resumeSnap){resumeSnap=null;snapClear();clearTimeout(resumeTimer)}
