@@ -20,7 +20,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .pl .nm{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 #pOpp{flex-direction:row-reverse}#pOpp .nm{text-align:right}
 .pl .av,.card-av{cursor:pointer}
-#uprof{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:80;padding:0 14px;overflow:auto}
+#uprof{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:90;padding:0 14px;overflow:auto}
 .pl.turn{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac) inset}
 .board{display:grid;grid-template-columns:80px minmax(0,1fr) 80px;gap:8px;align-items:start}
 .col{display:flex;flex-direction:column;gap:8px}
@@ -126,6 +126,8 @@ textarea.in{resize:none;font-family:inherit}
 #mail.off{opacity:0;pointer-events:none;transform:scale(.6)}
 #book{position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);right:max(12px,calc((100vw - 480px)/2 + 12px));z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);font-size:22px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
 #book.off{opacity:0;pointer-events:none;transform:scale(.6)}
+#releaseBtn{position:fixed;top:calc(env(safe-area-inset-top,0px) + 116px);right:max(12px,calc((100vw - 480px)/2 + 12px));z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);color:var(--tx);font-size:21px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
+#releaseBtn.off{opacity:0;pointer-events:none;transform:scale(.6)}
 #bookP{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto}
 .cb{text-align:left;margin-top:10px;padding:10px;border:1px solid var(--ln);border-radius:6px;background:var(--bg)}
 .cb h3{margin:0 0 6px;font-size:15px;color:var(--ac)}
@@ -271,8 +273,9 @@ textarea.in{resize:none;font-family:inherit}
 
 /* Доска обновлений */
 .release-overlay{position:fixed;inset:0;z-index:96;background:rgba(0,0,0,.82);display:flex;align-items:flex-start;justify-content:center;padding:18px 12px;overflow:auto}
-.release-card{width:min(460px,100%);margin:auto;text-align:left;border-color:#8a5b15;box-shadow:0 18px 55px #000b}
+.release-card{width:min(420px,100%);margin:auto;text-align:left;border-color:#8a5b15;border-radius:22px;box-shadow:0 18px 55px #000b;padding:18px}
 .release-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+#releaseClose{width:34px;height:34px;min-width:34px;border-radius:50%;padding:0!important;display:flex;align-items:center;justify-content:center;font-size:17px}
 .release-kicker{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--ac);font-weight:900}
 .release-title{font-size:20px;font-weight:900;margin-top:2px}
 .release-sub{font-size:12px;color:var(--mut);margin-top:2px}
@@ -287,6 +290,7 @@ textarea.in{resize:none;font-family:inherit}
 <div id="loader"><div class="lg">⚔️</div><div class="lt">Пони-Арена</div><div class="bar"><i></i></div><div id="lmsg">Загрузка…</div></div>
 <button id="mail" class="off" aria-label="Уведомления">✉️<span id="mailN"></span></button>
 <button id="book" class="off" aria-label="Книга комбо">📖</button>
+<button id="releaseBtn" class="off" aria-label="Обновления">📰</button>
 <div id="duelPick" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><b id="dpTitle">Вызвать друга</b><div style="margin:10px 0 4px;font-weight:700">Режим игры</div><div id="modeDp"></div><button class="btn" id="dpGo">⚔ Вызвать</button><button class="btn sec" id="dpCancel">Отмена</button></div></div>
 <div id="notif" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
 <div id="releaseBoard" class="release-overlay hide" role="dialog" aria-modal="true" aria-labelledby="releaseTitle">
@@ -296,8 +300,6 @@ textarea.in{resize:none;font-family:inherit}
       <button class="dbtn" id="releaseClose" style="padding:6px 12px" aria-label="Закрыть">✕</button>
     </div>
     <div class="release-table-wrap"><table class="release-table"><thead><tr><th>Версия</th><th>Что обновилось</th></tr></thead><tbody id="releaseRows"></tbody></table></div>
-    <div class="release-note">Эта доска появляется один раз после установки новой версии. Просмотр сохраняется в аккаунте; для гостя — на этом устройстве.</div>
-    <button class="btn" id="releaseOk">Понятно, играть!</button>
   </div>
 </div>
 <div id="uprof" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px">
@@ -361,7 +363,6 @@ textarea.in{resize:none;font-family:inherit}
     <div id="acc" class="hide"><div id="hiNick" style="font-weight:800;font-size:20px"></div><div id="hiStat" class="pw"></div></div>
     <div id="bpMini" class="bpm hide" role="button" tabindex="0"><div class="bpm-top"><b>🎟 Батл-пасс</b><span id="bpmBadge" class="bpm-badge hide"></span></div><div class="bpm-bar"><div class="bpm-fill" id="bpmFill"></div></div><div class="bpm-row"><span id="bpmTxt"></span><span id="bpmSub"></span></div></div>
     <button class="btn" id="start">Начать играть</button>
-    <button class="btn sec" id="showReleases">📰 Обновления</button>
     <div id="accBtns" class="hide">
       <button class="btn sec" id="goProf">Профиль</button>
       <button class="btn sec" id="goFr">Друзья <span id="frBadge"></span></button>
@@ -500,6 +501,8 @@ const FUSALL=[FUSID,FUSID2,FUSID3];
 const chr=c=>c===FUSID?FUS:c===FUSID2?FUS2:c===FUSID3?FUS3:CH[c];
 const ix=id=>CH.findIndex(x=>x.id===id);
 const CMC=['applebloom','scootaloo','sweetie'].map(ix),APL=['applejack','applebloom','granny'].map(ix),VIL=['chrysalis','tirek','cozy'].map(ix),TW=ix('twilight'),FRN=['pinkie','rarity','applejack','fluttershy','rainbow'].map(ix),VB={a:4,t:2,d:3};
+// Для «Силы дружбы»: после Искорки и двух разных друзей каждый дополнительный друг даёт +5 ко всем трём характеристикам. Сохранённый бонус переносится вместе с украденной картой.
+const friendshipExtra=members=>{let hasTwilight=false,friendCount=0,carried=0;const kinds=new Set();(members||[]).forEach(m=>{if(!m)return;const b=Number(m.b)||0;if(b){carried+=b;return}if(m.c===TW)hasTwilight=true;if(FRN.includes(m.c)){friendCount++;kinds.add(m.c)}});return carried+(hasTwilight&&kinds.size>=2?Math.max(0,friendCount-2)*5:0)};
 let OV=null,FZ=[],FN=-1,HL=[],FK=-1;
 let STL={flying:null,credited:{me:false,opp:false}}; // полёт похищенной карты в процессе // OV — временная раскладка стороны на время анимации слияния
 // Раскладка карт по слотам. Комбо-слияния могут срабатывать сколько угодно раз за игру (в т.ч. одно и то же повторно и разные подряд).
@@ -516,7 +519,7 @@ function layX2(ents){
   const s=[],st=[],ev=[];
   ents.forEach((en,k)=>{
     const p=s.indexOf(null);
-    if(p>=0){s[p]=en.c;st[p]=[{c:en.c,t:en.t}]}else{s.push(en.c);st.push([{c:en.c,t:en.t}])}
+    if(p>=0){s[p]=en.c;st[p]=[{c:en.c,t:en.t,b:en.b||0}]}else{s.push(en.c);st.push([{c:en.c,t:en.t,b:en.b||0}])}
     for(let g=0;g<8;g++){
       let hit=null;
       for(const r of RULES){const ps=r.find(s);if(ps){hit={r,ps};break}}
@@ -570,7 +573,7 @@ function landOfVictim(V){
 }
 const removedOf=V=>new Set((landOfVictim(V)||{members:[]}).members.map(m=>m.t));
 // Украденное комбо передаётся одной готовой картой, а не отдельными исходными персонажами.
-const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?[{c:l.card,t:'i0'}]:[]};
+const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?[{c:l.card,t:'i0',b:l.card===FUSID?friendshipExtra(l.members):0}]:[]};
 // карта уже улетела из слота жертвы (полёт завершён)
 const landDone=V=>{const l=landOfVictim(V);return !!l&&shown[V].length>l.j&&STL.flying!==(V==='me'?'opp':'me')};
 // Сколько мест должно быть занято на итоговом поле:
@@ -651,6 +654,7 @@ function effOf(side,i,sh){
   if(c==null)return null;
   const inc=((T.st&&T.st[i])||[]).some(m=>m.t[0]==='i');
   const x=chr(c);let st={a:x.a,t:x.t,d:x.d},deb=null,blocked=false,combo=false;
+  if(c===FUSID){const bonus=friendshipExtra(T.st&&T.st[i]);st.a+=bonus;st.t+=bonus;st.d+=bonus}
   if(VIL.includes(c)&&VIL.every(v=>L.includes(v))){st.a+=VB.a;st.t+=VB.t;st.d+=VB.d;combo=true}
   const hit=side==='me'?(opp&&opp.deb):myDeb,own=side==='me'?myDeb:(opp&&opp.deb);
   const ap=o=>{for(const k of ['a','t','d'])st[k]=Math.max(0,st[k]+((o&&o[k])||0))};
@@ -1202,7 +1206,7 @@ function onOpp(p){
 }
 async function startGame(){
   if(coinDone||$('game').dataset.s)return;$('game').dataset.s=1;
-  $('mail').classList.add('off');$('notif').classList.add('hide');$('uprof').classList.add('hide');$('book').classList.add('off');$('bookP').classList.add('hide');
+  $('mail').classList.add('off');$('notif').classList.add('hide');$('uprof').classList.add('hide');$('book').classList.add('off');$('releaseBtn').classList.add('off');$('bookP').classList.add('hide');
   setMsg('');
   const lb=$('lobby');lb.style.transition='opacity .6s ease';lb.style.opacity='0';
   await wait(650);
@@ -1852,8 +1856,10 @@ const eMsg=e=>({'auth/email-already-in-use':'Такой ник уже занят
 
 // История релизов задаётся вместе с каждой новой версией игры.
 // В следующем выпуске сюда добавляется новая запись, а RELEASE_VERSION увеличивается.
-const RELEASE_VERSION=12;
+const RELEASE_VERSION=14;
 const RELEASE_NOTES=[
+  {v:14,d:'В комбо «Сила дружбы» за каждого участника сверх трёх карта получает +5 ко всем характеристикам. Бонус сохраняется и при краже этой карты.'},
+  {v:13,d:'Кнопка «Обновления» перенесена под книгу комбо и оформлена круглой. Окно журнала стало компактнее и закрывается только крестиком.'},
   {v:12,d:'Исправлена анимация комбо: карты, не участвующие в слиянии, остаются на своих местах и больше не перескакивают между слотами во время эффекта. Добавлена доска обновлений с сохранением отметки о просмотре.'},
   {v:11,d:'Сайт запоминает авторизацию Firebase: после повторного открытия браузера игрок автоматически возвращается в аккаунт.'},
   {v:10,d:'Исправлена проверка пустых слотов после кражи и слияния карт: если поле не заполнено, игрок получает дополнительную прокрутку. Разрешён выбор одинаковых ухудшений.'},
@@ -1886,9 +1892,8 @@ async function closeReleaseBoard(){
     try{localStorage.setItem('mlpReleaseSeenGuest',String(RELEASE_VERSION))}catch(e){}
   }
 }
-$('releaseOk').onclick=closeReleaseBoard;
 $('releaseClose').onclick=closeReleaseBoard;
-$('showReleases').onclick=openReleaseBoard;
+$('releaseBtn').onclick=openReleaseBoard;
 function setTab(up){tabUp=up;$('tabIn').classList.toggle('tabon',!up);$('tabUp').classList.toggle('tabon',up);$('aBio').classList.toggle('hide',!up);$('aGo').textContent=up?'Создать аккаунт':'Войти';err('')}
 $('tabIn').onclick=()=>setTab(false);$('tabUp').onclick=()=>setTab(true);
 $('aGuest').onclick=()=>{renderHome();show('home');maybeShowRelease()};
@@ -2123,7 +2128,7 @@ function renderFr(){
 }
 const NF={req:{},inv:{}};let curInvite=null;
 function renderReq(v){NF.req=v;updateNotif()}
-function updMail(){const inG=!$('game').classList.contains('hide')||!!$('game').dataset.s;$('mail').classList.toggle('off',inG||!me);$('book').classList.toggle('off',inG)}
+function updMail(){const inG=!$('game').classList.contains('hide')||!!$('game').dataset.s;$('mail').classList.toggle('off',inG||!me);$('book').classList.toggle('off',inG);$('releaseBtn').classList.toggle('off',inG)}
 function updateNotif(){
   const now=Date.now(),rq=Object.entries(NF.req),iv=Object.entries(NF.inv).filter(([k,v])=>v&&now-v.t<120000),n=rq.length+iv.length;
   $('mailN').textContent=n;$('mailN').style.display=n?'block':'none';
