@@ -69,7 +69,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.dgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .dbtn{background:var(--bg);color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:8px 4px;font-size:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
 .dbtn span{font-size:22px}.dbtn small{color:var(--mut);font-size:10px}.dbtn.on{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac) inset}
-.dbtn:disabled{filter:grayscale(1);opacity:.38;cursor:not-allowed;box-shadow:none!important;border-color:var(--ln)!important}.dbtn:disabled::after{content:"ВЫБРАНО СОПЕРНИКОМ";font-size:8px;color:var(--mut);font-weight:800}
+.dbtn:disabled{filter:grayscale(1);opacity:.38;cursor:not-allowed;box-shadow:none!important;border-color:var(--ln)!important}
 
 .coin.go{animation:flip 1.6s ease-in-out}
 .stg{transition:opacity .9s ease,transform .9s ease}
@@ -190,7 +190,7 @@ textarea.in{resize:none;font-family:inherit}
 .avw{position:relative;flex:none;display:inline-block}
 .avw>.av{position:relative;z-index:1}
 .avw .dc{position:absolute;pointer-events:none;max-width:none;height:auto;z-index:0}
-.avw .dc.w{left:50%;top:50%;transform:translate(-50%,-50%)}
+.avw .dc.w{left:50%;top:50%;transform:translate(-50%,-50%) scaleX(1.18)}
 .avw .dc.c{left:50%;z-index:2;transform:translateX(-50%)}
 .pl{overflow:visible!important}
 .pl .nm{overflow:hidden}
@@ -546,17 +546,19 @@ const removedOf=V=>new Set((landOfVictim(V)||{members:[]}).members.map(m=>m.t));
 const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?[{c:l.card,t:'i0'}]:[]};
 // карта уже улетела из слота жертвы (полёт завершён)
 const landDone=V=>{const l=landOfVictim(V);return !!l&&shown[V].length>l.j&&STL.flying!==(V==='me'?'opp':'me')};
-// все карты стороны вытянуты и она уже не ждёт спина
-const revealDone=S=>shown[S].length>=cardsOf(S).length&&fill(cardsOf(S))>=nSide(S);
-// Своих мест занято с учётом слияний (украденная карта уже не своя)
-function ownFill(S){
-  const rem=removedOf(S);
-  return layX2(cardsOf(S).map((c,t)=>({c,t:'o'+t})).filter(e=>!rem.has(e.t))).s.filter(c=>c!=null).length;
+// Сколько мест должно быть занято на итоговом поле:
+// базовые места + одна входящая украденная сущность - одна ушедшая сущность.
+// Учитываем только уже найденную цель кражи; если цели ещё нет, дополнительное место не создаём.
+const boardTarget=S=>nSide(S)+inboxOf(S).length-(landOfVictim(S)?1:0);
+// Считаем фактическое количество занятых мест на итоговой раскладке.
+// В отличие от подсчёта только собственных карт, так видны слияния между
+// украденной картой и картами вора — после них игра запросит недостающую прокрутку.
+function boardFill(S){
+  return layX2(seqFinal(S)).s.filter(c=>c!=null).length;
 }
-// Сколько своих мест должно быть занято: у жертвы на одно меньше (украденный слот уходит)
-const ownTarget=S=>nSide(S)-(landOfVictim(S)?1:0); // из поля уходит одна видимая карта: персонаж или целое комбо
-// Все места стороны заполнены с учётом комбо
-const boardDone=S=>ownFill(S)>=ownTarget(S);
+const boardDone=S=>boardFill(S)>=boardTarget(S);
+// Все карты стороны раскрыты и итоговое поле заполнено с учётом краж и слияний.
+const revealDone=S=>shown[S].length>=cardsOf(S).length&&boardDone(S);
 // что видно прямо сейчас: своя карта без украденных, плюс украденная — когда вор всё вытянул
 function seqDisp(S){
   const rem=landDone(S)?removedOf(S):new Set();
@@ -890,21 +892,14 @@ function debTurn(){
   if(firstMe){if(!mh)return 'me';if(!oh)return 'opp';return null}
   if(!oh)return 'opp';if(!mh)return 'me';return null;
 }
-// Если соперник уже выбрал ухудшение, второй игрок не может выбрать тот же вариант.
+// Оба игрока могут выбрать одинаковое ухудшение.
 function refreshDebChoices(){
   const grid=$('dbGrid');if(!grid)return;
-  const blocked=(!myDeb&&opp&&opp.deb)?+opp.deb.k:-1;
   grid.querySelectorAll('button[data-k]').forEach(b=>{
-    const isBlocked=(+b.dataset.k===blocked);
-    b.disabled=isBlocked;
-    b.classList.toggle('taken',isBlocked);
-    if(isBlocked&&debSel===blocked){debSel=-1;b.classList.remove('on');}
+    b.disabled=false;
+    b.classList.remove('taken');
   });
-  if(blocked>=0&&!myDeb){
-    const d=DB[blocked];
-    $('dbHint').textContent='Соперник уже выбрал '+d.e+' '+d.n+'. Этот вариант заблокирован — выбери другое ухудшение.';
-  }
-  const valid=debSel>=0&&debSel!==blocked&&(DB[debSel].all||slotSel>0);
+  const valid=debSel>=0&&(DB[debSel].all||slotSel>0);
   $('dbOk').disabled=!valid;
 }
 function teamStats(side){let A=0,T=0,D=0;const n=layT(side,false).s.length;for(let i=0;i<n;i++){const e=effOf(side,i);if(!e)continue;A+=e.a;T+=e.t;D+=e.d}return{A,T,D}}
@@ -1149,7 +1144,7 @@ function onOpp(p){
     opp.cards=np.cards||[];opp.deb=np.deb||null;
     update();return
   }
-  if(opp&&opp.id&&(opp.rd||0)!==round)opp={id:opp.id,name:opp.name,uid:opp.uid,cards:[],rd:opp.rd||0,rm:0};
+  if(opp&&opp.id&&(opp.rd||0)!==round){opp={id:opp.id,name:opp.name,uid:opp.uid,cards:[],rd:opp.rd||0,rm:0};}
   if(opp&&opp.id)oppLeft=false;else if(prev)oppLeft=true;
   if(!opp||!opp.id){
     if(prev&&matchLive&&!finished){forfeitWin(!!(prev.deb&&myDeb));return}
@@ -1169,11 +1164,9 @@ async function startGame(){
   renderBar();
   drawSlots();idleStrip();
   $('dbGrid').innerHTML=DB.map((d,i)=>`<button class="dbtn t${Math.floor(i/3)}" data-k="${i}"><span>${d.e}</span><b>${d.n}</b></button>`).join('');
-  const chk=()=>{const blocked=(!myDeb&&opp&&opp.deb)?+opp.deb.k:-1;$('dbOk').disabled=!(debSel>=0&&debSel!==blocked&&(DB[debSel].all||slotSel>0))};
+  const chk=()=>{$('dbOk').disabled=!(debSel>=0&&(DB[debSel].all||slotSel>0))};
   $('dbGrid').querySelectorAll('button').forEach(b=>b.onclick=()=>{
-    if(lock||b.disabled||stage!=='deb'||debTurn()!=='me')return;
-    const blocked=(!myDeb&&opp&&opp.deb)?+opp.deb.k:-1;
-    if(+b.dataset.k===blocked)return;
+    if(lock||stage!=='deb'||debTurn()!=='me')return;
     debSel=+b.dataset.k;$('dbHint').textContent=DB[debSel].txt+(DB[debSel].all?'':' · нажми слот соперника ➜');
     $('dbGrid').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));chk();markTargets();
   });
@@ -1186,8 +1179,7 @@ async function startGame(){
     chk();markTargets();
   };
   $('dbOk').onclick=()=>{
-    const blocked=(!myDeb&&opp&&opp.deb)?+opp.deb.k:-1;
-    if(lock||stage!=='deb'||debTurn()!=='me'||debSel<0||debSel===blocked)return;
+    if(lock||stage!=='deb'||debTurn()!=='me'||debSel<0)return;
     myDeb={k:debSel,slot:DB[debSel].all?null:slotSel};$('dbOk').disabled=true;
     G.presence({deb:myDeb});update();
   };
@@ -2456,8 +2448,8 @@ $('bpBack').onclick=()=>show('home');
 
 if(fInit()){
   setTab(false);
-  // SESSION persistence isolates sign-in state between browser tabs; TAB lock blocks parallel devices.
-  auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).then(()=>{
+  // LOCAL persistence сохраняет вход между перезапусками браузера; TAB lock blocks parallel devices.
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
     auth.onAuthStateChanged(u=>{
       if(regBusy)return;
       if(u&&u.isAnonymous){meOff.forEach(f=>f());meOff=[];me=null;renderHome();if(scr==='')show('home');hideLoader();return}
