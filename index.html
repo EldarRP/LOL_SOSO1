@@ -346,6 +346,12 @@ textarea.in{resize:none;font-family:inherit}
     <div id="pfNick" style="font-weight:800;font-size:20px"></div>
     <div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="pfNew" maxlength="12" placeholder="Новый ник" autocapitalize="none" style="margin-top:0"><button class="btn" id="pfRename" style="width:auto;margin-top:0;padding:0 14px;font-size:13px">Сменить</button></div>
     <div id="pfMsg" class="pw" style="min-height:18px;margin-top:4px"></div>
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ln)">
+      <div style="font-weight:700;margin-bottom:6px">Смена пароля</div>
+      <input class="in" id="pfPassOld" type="password" maxlength="40" placeholder="Текущий пароль" autocomplete="current-password">
+      <input class="in" id="pfPassNew" type="password" maxlength="40" placeholder="Новый пароль (от 6 символов)" autocomplete="new-password">
+      <button class="btn sec" id="pfPassChange">Изменить пароль</button>
+    </div>
     <textarea class="in" id="pfBio" maxlength="120" rows="3" placeholder="О себе (по желанию)"></textarea>
     <button class="btn" id="pfSave">Сохранить описание</button>
     <div class="stat3"><div><b id="pfW" style="color:var(--ok)">0</b><div class="pw">Победы</div></div><div><b id="pfL" style="color:#ff6b6b">0</b><div class="pw">Поражения</div></div><div><b id="pfR">–</b><div class="pw">Винрейт</div></div><div><b id="pfC" style="color:#ffe066">0</b><div class="pw">Комбо</div></div></div>
@@ -358,7 +364,7 @@ textarea.in{resize:none;font-family:inherit}
       <button class="btn sec" id="back4">Назад</button>
   </div>
   <div id="bpass" class="hide">
-    <div class="bp-head"><b class="bp-title">🎟 Батл-пасс</b><button class="dbtn" id="bpX" style="padding:6px 12px">✕</button></div>
+    <div class="bp-head"><b class="bp-title">🎟 Батл-пасс</b></div>
     <div class="bp-stat" id="bpStat"></div>
     <div class="bp-scroll" id="bpScroll"><div class="bp-path" id="bpPath"><div class="bp-line"></div><div class="bp-lfill" id="bpFill"></div></div></div>
     <div class="bp-hint" id="bpHint"></div>
@@ -505,6 +511,7 @@ function lay(cards){return layX(cards).s}
 const fill=cards=>lay(cards).filter(c=>c!=null).length;
 // ===== Кража и раскладка =====
 // Цель кражи ищется только по собственным картам жертвы (до кражи), поэтому результат одинаков у обоих игроков и не зависит от порядка вскрытия.
+// Входящая карта из inbox не становится целью второй кражи в том же раунде: обе цели выбираются до раскрытия.
 const cardsOf=S=>S==='me'?myCards:((opp&&opp.cards)||[]);
 const nSide=S=>S==='me'?nMe():nOp();
 function landOfVictim(V){
@@ -914,9 +921,13 @@ function update(){
   if(stage==='battle')return;
   if(stage!=='spin')return;
   if(!animating){
-    // показать следующую карту
-    if(myCards.length>shown.me.length){reveal('me',myCards[shown.me.length]);return}
-    if(oc.length>shown.opp.length){reveal('opp',oc[shown.opp.length]);return}
+    // Оба клиента используют один и тот же порядок игроков, вычисленный по ID комнаты.
+    // Поэтому локальная сторона не получает постоянный приоритет только из-за имени «me».
+    const order=firstId()===ME.id?['me','opp']:['opp','me'];
+    for(const side of order){
+      const cards=side==='me'?myCards:oc;
+      if(cards.length>shown[side].length){reveal(side,cards[shown[side].length]);return}
+    }
   }
   const allShown=!animating&&shown.me.length===myCards.length&&shown.opp.length===oc.length&&boardDone('me')&&boardDone('opp');
   if(allShown&&!battleStarted){battle();return}
@@ -960,9 +971,11 @@ async function stealFly(V,l){
 function tryAttach(){
   if(STL.credited.me)return;
   if(landOfVictim('opp')&&landDone('opp')&&revealDone('me')){
+    // Сохраняем флаг в снимке, чтобы после перезагрузки это событие не начислилось повторно.
     STL.credited.me=true;
+    snapSave();
     const ev=layX2(seqFinal('me')).ev.filter(e=>e.mem&&e.mem.some(m=>m.t[0]==='i'));
-    const stolen= inboxOf('me').filter(e=>FUSALL.includes(e.c)).length;
+    const stolen=inboxOf('me').filter(e=>FUSALL.includes(e.c)).length;
     const total=ev.length+stolen;
     if(total){countCombo(total);banner('✨ Комбо у тебя!','vil')}
   }
@@ -1135,7 +1148,12 @@ async function startGame(){
   };
   beginMatch();
   const rs=resumeSnap;resumeSnap=null;clearTimeout(resumeTimer);resumeTimer=null;
-  if(rs){ccDone=rs.cc||0;resumeStage(rs.stage)}else flow();
+  if(rs){
+    ccDone=rs.cc||0;
+    STL.credited=Object.assign({me:false,opp:false},rs.stl&&rs.stl.credited||{});
+    snapSave();
+    resumeStage(rs.stage);
+  }else flow();
 }
 let round=0,baseRoom='',oppLeft=false;
 function rematchUI(){
@@ -1347,6 +1365,7 @@ function snapSave(){
     localStorage.setItem(snapKey(),JSON.stringify({
       t:Date.now(),tab:TAB,
       sid,baseRoom,round,roomName,mode:MODE,sz:SIZE,stage,cc:ccDone,
+      stl:{credited:{me:!!STL.credited.me,opp:!!STL.credited.opp}},
       me:{id:ME.id,name:ME.name,uid:(me&&me.uid)||'',cards:myCards,deb:myDeb},
       opp:{id:oppId,name:(opp&&opp.name)||'',uid:(opp&&opp.uid)||''}
     }));
@@ -1664,7 +1683,10 @@ async function resumeMatch(snap){
   });
   cli.subscribe(P+'g/'+sid+'/p/+');
   G.presence({});
-  resumeTimer=setTimeout(()=>{resumeTimer=null;if(resumeSnap)resumeFail('Соперник уже не в бою — результат не засчитан')},8000);
+  // Окно ожидания ограничено оставшимся временем OPP_GRACE (15 секунд от отключения).
+  const exitAt=snap.x||snap.t||Date.now();
+  const resumeLeft=Math.max(1000,OPP_GRACE-(Date.now()-exitAt)+1000);
+  resumeTimer=setTimeout(()=>{resumeTimer=null;if(resumeSnap)resumeFail('Соперник уже не в бою — результат не засчитан')},resumeLeft);
 }
 // Проверка при загрузке: ищем снимки боя в localStorage (своей вкладки или закрытого браузера).
 // Плашку показываем, только если выход был не раньше OPP_GRACE назад, бой не идёт в открытой вкладке и соперник ещё в бою.
@@ -1743,7 +1765,7 @@ function fInit(){
   if(FIREBASE_CONFIG.databaseURL.includes('ВСТАВЬ')||!window.firebase)return false;
   try{firebase.initializeApp(FIREBASE_CONFIG);auth=firebase.auth();fdb=firebase.database();return true}catch(e){return false}
 }
-const eMsg=e=>({'auth/email-already-in-use':'Такой ник уже занят','auth/wrong-password':'Неверный ник или пароль','auth/invalid-credential':'Неверный ник или пароль','auth/user-not-found':'Неверный ник или пароль','auth/weak-password':'Пароль слишком короткий (от 6 символов)','auth/network-request-failed':'Нет интернета','auth/operation-not-allowed':'В Firebase не включён вход по Email/паролю','auth/too-many-requests':'Слишком много попыток, подожди'}[e.code]||('Ошибка: '+(e.message||e)));
+const eMsg=e=>({'auth/email-already-in-use':'Такой ник уже занят','auth/wrong-password':'Неверный ник или пароль','auth/invalid-credential':'Неверный ник или пароль','auth/user-not-found':'Неверный ник или пароль','auth/weak-password':'Пароль слишком короткий (от 6 символов)','auth/network-request-failed':'Нет интернета','auth/operation-not-allowed':'В Firebase не включён вход по Email/паролю','auth/too-many-requests':'Слишком много попыток, подожди','auth/requires-recent-login':'Войди заново и повтори действие'}[e.code]||('Ошибка: '+(e.message||e)));
 function setTab(up){tabUp=up;$('tabIn').classList.toggle('tabon',!up);$('tabUp').classList.toggle('tabon',up);$('aBio').classList.toggle('hide',!up);$('aGo').textContent=up?'Создать аккаунт':'Войти';err('')}
 $('tabIn').onclick=()=>setTab(false);$('tabUp').onclick=()=>setTab(true);
 $('aGuest').onclick=()=>{renderHome();show('home')};
@@ -1819,7 +1841,37 @@ $('pfAvIn').onchange=async e=>{
     $('pfMsg').textContent='Аватарка обновлена';
   }catch(x){$('pfMsg').textContent='Не удалось: '+(x.message||x)}
 };
-function onUser(u){
+let accountLeaseRef=null,accountLeaseTimer=null;
+async function claimAccountSession(u){
+  const ref=fdb.ref('status/'+u.uid+'/activeSession');
+  const tx=await ref.transaction(cur=>{
+    if(!cur||cur.tab===TAB||(Date.now()-(cur.ts||0)>30000))return {tab:TAB,ts:Date.now()};
+    return;
+  },undefined,false);
+  if(!tx.committed)return false;
+  accountLeaseRef=ref;
+  try{await ref.onDisconnect().remove()}catch(e){}
+  if(accountLeaseTimer)clearInterval(accountLeaseTimer);
+  accountLeaseTimer=setInterval(()=>{
+    ref.transaction(cur=>cur&&cur.tab===TAB?{tab:TAB,ts:Date.now()}:cur,undefined,false).catch(()=>{});
+  },10000);
+  return true;
+}
+async function releaseAccountSession(){
+  if(accountLeaseTimer){clearInterval(accountLeaseTimer);accountLeaseTimer=null}
+  const ref=accountLeaseRef;accountLeaseRef=null;
+  if(ref){
+    try{await ref.transaction(cur=>cur&&cur.tab===TAB?null:cur,undefined,false)}catch(e){}
+    try{await ref.onDisconnect().cancel()}catch(e){}
+  }
+}
+async function onUser(u){
+  if(!(await claimAccountSession(u))){
+    meOff.forEach(f=>f());meOff=[];me=null;
+    alert('Этот аккаунт уже используется в другой вкладке или на другом устройстве. Одновременно играть можно только с одного устройства.');
+    await auth.signOut();
+    return;
+  }
   meOff.forEach(f=>f());meOff=[];
   const ref=fdb.ref('users/'+u.uid);
   const cb=ref.on('value',s=>{
@@ -2018,8 +2070,25 @@ $('back4').onclick=()=>show('home');$('back5').onclick=()=>show('home');
 $('pfSave').onclick=async()=>{
   try{await fdb.ref('users/'+me.uid+'/bio').set($('pfBio').value.trim().slice(0,120));$('pfSave').textContent='Сохранено ✓';setTimeout(()=>$('pfSave').textContent='Сохранить описание',1500)}catch(e){err('Ошибка: '+(e.message||e))}
 };
+$('pfPassChange').onclick=async()=>{
+  const old=$('pfPassOld').value,neu=$('pfPassNew').value,m=$('pfMsg'),u=auth&&auth.currentUser;
+  if(!u||!u.email){m.textContent='Смена пароля доступна только для аккаунта с паролем';return}
+  if(!old){m.textContent='Введи текущий пароль';return}
+  if(neu.length<6){m.textContent='Новый пароль должен содержать минимум 6 символов';return}
+  $('pfPassChange').disabled=true;m.textContent='';
+  try{
+    const cred=firebase.auth.EmailAuthProvider.credential(u.email,old);
+    await u.reauthenticateWithCredential(cred);
+    await u.updatePassword(neu);
+    $('pfPassOld').value='';$('pfPassNew').value='';
+    m.textContent='Пароль успешно изменён ✓';
+  }catch(e){
+    m.textContent=e.code==='auth/wrong-password'||e.code==='auth/invalid-credential'?'Неверный текущий пароль':e.code==='auth/weak-password'?'Новый пароль слишком простой':('Не удалось изменить пароль: '+(e.message||e));
+  }finally{$('pfPassChange').disabled=false}
+};
 $('logout').onclick=async()=>{
-  try{await fdb.ref('status/'+me.uid+'/connections/'+TAB).remove()}catch(e){}
+  try{if(me)await fdb.ref('status/'+me.uid+'/connections/'+TAB).remove()}catch(e){}
+  await releaseAccountSession();
   meOff.forEach(f=>f());meOff=[];me=null;ME.name='Пони-'+Math.floor(100+Math.random()*900);
   await auth.signOut();
 };
@@ -2250,13 +2319,11 @@ CM.showBp=()=>{
 
 CM.wdGrid=kind=>{
   const st=CM.state(),cur=st.eq[kind];
-  let h='<button class="wd-cell'+(cur?'':' on')+'" data-k="'+kind+'" data-id=""><span class="wd-q" style="font-size:20px">✕</span><small>без '+(kind==='crown'?'короны':'крыльев')+'</small></button>';
-  CM.SETS.forEach((s,i)=>{
-    const id=(kind==='crown'?'crown_':'wing_')+String(i+1).padStart(2,'0');
-    const it=CM.byId(id),own=st.owned.includes(id);
-    h+='<button class="wd-cell'+(own?'':' lock')+(cur===id?' on':'')+'" data-k="'+kind+'" data-id="'+id+'"'+(own?'':' disabled')+'>'+'<img src="'+it.img+'" alt=""><small>'+(own?s.n:'не получено')+'</small></button>';
-  });
-  return h;
+  // В редакторе показываем только уже полученные предметы.
+  return st.owned.filter(id=>{const it=CM.byId(id);return it&&it.kind===kind;}).map(id=>{
+    const it=CM.byId(id);
+    return '<button class="wd-cell'+(cur===id?' on':'')+'" data-k="'+kind+'" data-id="'+id+'"><img src="'+it.img+'" alt=""><small>'+it.name+'</small></button>';
+  }).join('');
 };
 CM.renderWd=()=>{
   if(!me||!$('wdCrown'))return;
@@ -2339,16 +2406,18 @@ CM.onMe=()=>{
 $('bpMini').onclick=CM.showBp;
 $('bpMini').onkeydown=e=>{if(e.key==='Enter')CM.showBp()};
 $('bpBack').onclick=()=>show('home');
-$('bpX').onclick=()=>show('home');
 
 if(fInit()){
   setTab(false);
-  auth.onAuthStateChanged(u=>{
-    if(regBusy)return;
-    if(u&&u.isAnonymous){meOff.forEach(f=>f());meOff=[];me=null;renderHome();if(scr==='')show('home');hideLoader();return}
-    if(u)onUser(u);
-    else{meOff.forEach(f=>f());meOff=[];me=null;renderHome();show('auth');hideLoader()}
-  });
+  // SESSION persistence isolates sign-in state between browser tabs; TAB lock blocks parallel devices.
+  auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).then(()=>{
+    auth.onAuthStateChanged(u=>{
+      if(regBusy)return;
+      if(u&&u.isAnonymous){meOff.forEach(f=>f());meOff=[];me=null;renderHome();if(scr==='')show('home');hideLoader();return}
+      if(u)onUser(u).catch(e=>{console.error('session claim:',e);auth.signOut()});
+      else{releaseAccountSession();meOff.forEach(f=>f());meOff=[];me=null;renderHome();show('auth');hideLoader()}
+    });
+  }).catch(e=>{console.error('auth persistence:',e);show('auth');hideLoader()});
 }else{renderHome();show('home');hideLoader()}
 function hideLoader(){const l=$('loader');if(!l||l.classList.contains('out'))return;l.classList.add('out');setTimeout(()=>l.remove(),650)}
 setTimeout(()=>{const m=$('lmsg');if(m)m.textContent='Медленное соединение… попробуй включить VPN или сменить сеть'},7000);
