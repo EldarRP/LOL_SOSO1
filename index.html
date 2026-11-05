@@ -268,12 +268,38 @@ textarea.in{resize:none;font-family:inherit}
 
 #dbGrid .dbtn b{white-space:normal!important;line-height:1.1;text-align:center}
 .slot.ghost{animation:none!important;box-shadow:0 0 18px #ffd24d}
+
+/* Доска обновлений */
+.release-overlay{position:fixed;inset:0;z-index:96;background:rgba(0,0,0,.82);display:flex;align-items:flex-start;justify-content:center;padding:18px 12px;overflow:auto}
+.release-card{width:min(460px,100%);margin:auto;text-align:left;border-color:#8a5b15;box-shadow:0 18px 55px #000b}
+.release-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.release-kicker{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--ac);font-weight:900}
+.release-title{font-size:20px;font-weight:900;margin-top:2px}
+.release-sub{font-size:12px;color:var(--mut);margin-top:2px}
+.release-table-wrap{overflow-x:auto;margin-top:14px;border:1px solid var(--ln);border-radius:7px}
+.release-table{width:100%;border-collapse:collapse;font-size:12px;min-width:290px}
+.release-table th{padding:9px 8px;text-align:left;background:var(--bg);color:var(--ac);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+.release-table td{padding:10px 8px;vertical-align:top;border-top:1px solid var(--ln);line-height:1.4}
+.release-table td:first-child{white-space:nowrap;font-weight:900;color:var(--ac);width:56px}
+.release-current td{background:rgba(242,169,0,.07)}
+.release-note{font-size:12px;color:var(--mut);line-height:1.45;margin-top:12px}
 </style></head><body>
 <div id="loader"><div class="lg">⚔️</div><div class="lt">Пони-Арена</div><div class="bar"><i></i></div><div id="lmsg">Загрузка…</div></div>
 <button id="mail" class="off" aria-label="Уведомления">✉️<span id="mailN"></span></button>
 <button id="book" class="off" aria-label="Книга комбо">📖</button>
 <div id="duelPick" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><b id="dpTitle">Вызвать друга</b><div style="margin:10px 0 4px;font-weight:700">Режим игры</div><div id="modeDp"></div><button class="btn" id="dpGo">⚔ Вызвать</button><button class="btn sec" id="dpCancel">Отмена</button></div></div>
 <div id="notif" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
+<div id="releaseBoard" class="release-overlay hide" role="dialog" aria-modal="true" aria-labelledby="releaseTitle">
+  <div class="panel release-card">
+    <div class="release-head">
+      <div><div class="release-kicker">Пони-Арена · журнал версий</div><div class="release-title" id="releaseTitle">📰 Что нового?</div><div class="release-sub" id="releaseSubtitle">Последние изменения игры</div></div>
+      <button class="dbtn" id="releaseClose" style="padding:6px 12px" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="release-table-wrap"><table class="release-table"><thead><tr><th>Версия</th><th>Что обновилось</th></tr></thead><tbody id="releaseRows"></tbody></table></div>
+    <div class="release-note">Эта доска появляется один раз после установки новой версии. Просмотр сохраняется в аккаунте; для гостя — на этом устройстве.</div>
+    <button class="btn" id="releaseOk">Понятно, играть!</button>
+  </div>
+</div>
 <div id="uprof" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px">
   <div style="display:flex;justify-content:center"><div id="upAv"></div></div>
   <div id="upNick" style="font-weight:800;font-size:20px;margin-top:8px"></div>
@@ -335,6 +361,7 @@ textarea.in{resize:none;font-family:inherit}
     <div id="acc" class="hide"><div id="hiNick" style="font-weight:800;font-size:20px"></div><div id="hiStat" class="pw"></div></div>
     <div id="bpMini" class="bpm hide" role="button" tabindex="0"><div class="bpm-top"><b>🎟 Батл-пасс</b><span id="bpmBadge" class="bpm-badge hide"></span></div><div class="bpm-bar"><div class="bpm-fill" id="bpmFill"></div></div><div class="bpm-row"><span id="bpmTxt"></span><span id="bpmSub"></span></div></div>
     <button class="btn" id="start">Начать играть</button>
+    <button class="btn sec" id="showReleases">📰 Обновления</button>
     <div id="accBtns" class="hide">
       <button class="btn sec" id="goProf">Профиль</button>
       <button class="btn sec" id="goFr">Друзья <span id="frBadge"></span></button>
@@ -731,13 +758,17 @@ function drawSlots(){
       return `<div class="slot${hit&&DB[dd.k].block?' dead':''}" data-i="${i+1}" data-key="${side}|ph|${phOrd(i)}"><div class="e" style="font-size:26px">?</div>карта ${i+1}${hit?`<div class="bd">${DB[dd.k].e} ${DB[dd.k].block?'выбыл':DB[dd.k].n}</div>`:''}</div>`;
     }).join('');
     DRAWN[id]=now;
-    // карты, которые только сдвинулись (например, вверх после ухода карты над ними), плавно доезжают до нового места
-    host.querySelectorAll('[data-key]').forEach(el=>{
-      const t=was.get(el.dataset.key);
-      if(t==null)return;
-      const dy=t-el.offsetTop;
-      if(Math.abs(dy)>1)el.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],{duration:Math.min(1400,800+Math.abs(dy)*1.2),easing:'cubic-bezier(.45,.05,.25,1)'});
-    });
+    // Во время комбо промежуточная раскладка уже сохраняет прежние индексы
+    // непричастных карт. Не запускаем для них дополнительные FLIP-перемещения:
+    // иначе они начинают ездить поверх самой анимации слияния.
+    if(!(OV&&OV.side===side&&!OV.steal)){
+      host.querySelectorAll('[data-key]').forEach(el=>{
+        const t=was.get(el.dataset.key);
+        if(t==null)return;
+        const dy=t-el.offsetTop;
+        if(Math.abs(dy)>1)el.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],{duration:Math.min(1400,800+Math.abs(dy)*1.2),easing:'cubic-bezier(.45,.05,.25,1)'});
+      });
+    }
   }
   markTargets();
 }
@@ -995,14 +1026,28 @@ function tryAttach(){
 }
 // Дополняет промежуточный кадр слияния картами, которые уже открыты,
 // но ещё не входят в текущее комбо. Они не должны мигать/исчезать на время эффекта.
-function completeFusionFrame(snapshot, snapshotSt, event, sourceEntries){
+function fusionPositionMap(S){
+  const host=$(S==='me'?'cMe':'cOpp'),positions=new Map();
+  host.querySelectorAll('.slot[data-key][data-i]').forEach(el=>{
+    const key=el.dataset.key||'',identity=key.slice(key.lastIndexOf('|')+1);
+    const slot=Math.max(0,(+el.dataset.i||1)-1);
+    identity.split('+').forEach(token=>{if(/^[oi]\d+$/.test(token))positions.set(token,slot)});
+  });
+  return positions;
+}
+function completeFusionFrame(snapshot, snapshotSt, event, sourceEntries, stablePositions){
   const s=snapshot.slice(),st=snapshotSt.map(group=>group?group.map(item=>({...item})):null);
   const fused=new Set((event.mem||[]).map(m=>m.t));
   const present=new Set(st.flatMap(group=>(group||[]).map(m=>m.t)));
+  // Карты, которые уже стояли на поле и не входят в текущее комбо,
+  // возвращаем в их фактические слоты до начала эффекта. Новые (ещё не
+  // показанные) сущности занимают первый свободный слот по обычным правилам.
   for(const en of sourceEntries){
     if(fused.has(en.t)||present.has(en.t))continue;
-    let at=s.indexOf(null);
-    if(at<0)at=s.length;
+    let at=stablePositions&&stablePositions.has(en.t)?stablePositions.get(en.t):s.indexOf(null);
+    if(at==null||at<0)at=s.length;
+    while(s.length<=at){s.push(null);st.push(null)}
+    if(s[at]!=null){at=s.indexOf(null);if(at<0)at=s.length;while(s.length<=at){s.push(null);st.push(null)}}
     s[at]=en.c;
     st[at]=[{c:en.c,t:en.t}];
     present.add(en.t);
@@ -1015,13 +1060,14 @@ async function playFusions(S,list,ck,labelOf){
   const sourceEntries=seqDisp(S);
   for(const e of list){
     const fx=chr(e.id);
-    const beforeFrame=completeFusionFrame(e.before,e.stBefore,e,sourceEntries);
+    const stablePositions=fusionPositionMap(S);
+    const beforeFrame=completeFusionFrame(e.before,e.stBefore,e,sourceEntries,stablePositions);
     OV={side:S,s:beforeFrame.s,st:beforeFrame.st};FZ=[];FN=-1;drawSlots();
     $('wlab').textContent=labelOf(e);
     await wait(1000);ck();
     FK=e.id;FZ=e.src.map(i=>sd+i);drawSlots();banner(fx.e+' '+fx.n+' '+fx.e,'fz k'+(-e.id));
     await wait(1900);ck();
-    const afterFrame=completeFusionFrame(e.after,e.stAfter,e,sourceEntries);
+    const afterFrame=completeFusionFrame(e.after,e.stAfter,e,sourceEntries,stablePositions);
     OV={side:S,s:afterFrame.s,st:afterFrame.st};FZ=[];FN=sd+e.at;drawSlots();
     $('wlab').textContent=fx.e+' '+fx.n+' · ⚔'+fx.a+' 🧠'+fx.t+' 🛡'+fx.d+' — освободившиеся слоты выбираются дальше';
     await wait(1100);ck();
@@ -1803,9 +1849,49 @@ function fInit(){
   try{firebase.initializeApp(FIREBASE_CONFIG);auth=firebase.auth();fdb=firebase.database();return true}catch(e){return false}
 }
 const eMsg=e=>({'auth/email-already-in-use':'Такой ник уже занят','auth/wrong-password':'Неверный ник или пароль','auth/invalid-credential':'Неверный ник или пароль','auth/user-not-found':'Неверный ник или пароль','auth/weak-password':'Пароль слишком короткий (от 6 символов)','auth/network-request-failed':'Нет интернета','auth/operation-not-allowed':'В Firebase не включён вход по Email/паролю','auth/too-many-requests':'Слишком много попыток, подожди','auth/requires-recent-login':'Войди заново и повтори действие'}[e.code]||('Ошибка: '+(e.message||e)));
+
+// История релизов задаётся вместе с каждой новой версией игры.
+// В следующем выпуске сюда добавляется новая запись, а RELEASE_VERSION увеличивается.
+const RELEASE_VERSION=12;
+const RELEASE_NOTES=[
+  {v:12,d:'Исправлена анимация комбо: карты, не участвующие в слиянии, остаются на своих местах и больше не перескакивают между слотами во время эффекта. Добавлена доска обновлений с сохранением отметки о просмотре.'},
+  {v:11,d:'Сайт запоминает авторизацию Firebase: после повторного открытия браузера игрок автоматически возвращается в аккаунт.'},
+  {v:10,d:'Исправлена проверка пустых слотов после кражи и слияния карт: если поле не заполнено, игрок получает дополнительную прокрутку. Разрешён выбор одинаковых ухудшений.'},
+  {v:9,d:'Крылья на аватарке раздвинуты, чтобы между ними было больше расстояния.'},
+  {v:8,d:'Исправлено кратковременное изменение цвета уже занятого ухудшения при синхронизации выбора соперника.'},
+  {v:7,d:'Добавлена блокировка выбора одного и того же ухудшения двумя игроками; позднее это ограничение снято в версии 10.'},
+  {v:6,d:'Исправлена промежуточная раскладка при слиянии: открытые карты, не участвующие в комбо, не должны исчезать на время эффекта.'}
+];
+let releasePromptedUid='';
+function renderReleaseNotes(){
+  const body=$('releaseRows');
+  body.innerHTML=RELEASE_NOTES.map(x=>`<tr class="${x.v===RELEASE_VERSION?'release-current':''}"><td>v${x.v}</td><td>${x.d}</td></tr>`).join('');
+  $('releaseSubtitle').textContent='Установлена версия '+RELEASE_VERSION;
+}
+function openReleaseBoard(){renderReleaseNotes();$('releaseBoard').classList.remove('hide')}
+function maybeShowRelease(){
+  if(me&&me.uid){
+    if(Number(me.releaseSeen||0)<RELEASE_VERSION&&releasePromptedUid!==me.uid){releasePromptedUid=me.uid;openReleaseBoard()}
+    return;
+  }
+  let seen=0;try{seen=Number(localStorage.getItem('mlpReleaseSeenGuest')||0)}catch(e){}
+  if(seen<RELEASE_VERSION)openReleaseBoard();
+}
+async function closeReleaseBoard(){
+  $('releaseBoard').classList.add('hide');
+  if(me&&me.uid){
+    try{await fdb.ref('users/'+me.uid+'/releaseSeen').set(RELEASE_VERSION);me.releaseSeen=RELEASE_VERSION}
+    catch(e){console.warn('Не удалось сохранить просмотр обновлений:',e)}
+  }else{
+    try{localStorage.setItem('mlpReleaseSeenGuest',String(RELEASE_VERSION))}catch(e){}
+  }
+}
+$('releaseOk').onclick=closeReleaseBoard;
+$('releaseClose').onclick=closeReleaseBoard;
+$('showReleases').onclick=openReleaseBoard;
 function setTab(up){tabUp=up;$('tabIn').classList.toggle('tabon',!up);$('tabUp').classList.toggle('tabon',up);$('aBio').classList.toggle('hide',!up);$('aGo').textContent=up?'Создать аккаунт':'Войти';err('')}
 $('tabIn').onclick=()=>setTab(false);$('tabUp').onclick=()=>setTab(true);
-$('aGuest').onclick=()=>{renderHome();show('home')};
+$('aGuest').onclick=()=>{renderHome();show('home');maybeShowRelease()};
 $('toAuth').onclick=()=>show('auth');
 $('aGo').onclick=async()=>{
   const nick=$('aNick').value.trim(),pass=$('aPass').value;
@@ -1817,7 +1903,7 @@ $('aGo').onclick=async()=>{
       regBusy=true;
       const c=await auth.createUserWithEmailAndPassword(emailOf(nick),pass);
       try{await fdb.ref('nicks/'+nick.toLowerCase()).set({u:c.user.uid,e:emailOf(nick)})}catch(e){await c.user.delete();throw {code:'auth/email-already-in-use'}}
-      await fdb.ref('users/'+c.user.uid).set({nick,bio:$('aBio').value.trim().slice(0,120),wins:0,losses:0,combos:0});
+      await fdb.ref('users/'+c.user.uid).set({nick,bio:$('aBio').value.trim().slice(0,120),wins:0,losses:0,combos:0,releaseSeen:RELEASE_VERSION-1});
       regBusy=false;onUser(c.user);
     }else{
       let em=emailOf(nick);
@@ -1918,6 +2004,7 @@ async function onUser(u){
     if(!v){if(!regBusy){err('Профиль не найден, войди заново');auth.signOut()}return}
     me={uid:u.uid,...v};ME.name=v.nick;myState.name=v.nick;myState.uid=u.uid;renderHome();renderProfile();CM.onMe();
     if(scr===''||scr==='auth')show('home');
+    maybeShowRelease();
     hideLoader();
   });
   meOff.push(()=>ref.off('value',cb));
