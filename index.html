@@ -420,7 +420,7 @@ textarea.in{resize:none;font-family:inherit}
         <div class="pw" id="dbHint" style="margin:8px 0 4px;min-height:48px">Выбери ухудшение</div>
         <button class="btn" id="dbOk" disabled>Подтвердить</button>
       </div>
-      <div id="dbWait" class="stg off wt"><div style="font-size:38px">⏳</div><div>Соперник выбирает ухудшение<span class="dots"></span></div></div>
+      <div id="dbWait" class="stg off wt"><div style="font-size:38px">⏳</div><div>Первый игрок выбирает ухудшение<span class="dots"></span></div></div>
       <div id="wheelWrap" class="stg off"><div class="wheelBox" id="roul"><div class="pt"></div><canvas id="wheel" width="440" height="440"></canvas></div><div class="wlab" id="wlab"></div></div>
       <div class="water stg off" id="water"><div class="fg a" id="fa">🛡️</div><div class="fg b" id="fb">⚔️</div><div class="vs">VS</div></div>
     </div>
@@ -884,10 +884,11 @@ let stage='init',lock=true;
 const stgOn=id=>$(id).classList.remove('off'),stgOff=id=>$(id).classList.add('off');
 function setMsg(h){const m=$('msg');if(m.dataset.h===h)return;m.dataset.h=h;m.style.opacity=0;clearTimeout(m._t);m._t=setTimeout(()=>{m.innerHTML=h;m.style.opacity=h?1:0},260)}
 let myDeb=null,debSel=-1,slotSel=0,coinStarted=false,debDone=false,TS=null;
+// Ухудшение выбирает только один игрок за раунд — тот, кто ходит первым.
+// После подтверждения у обоих клиентов (myDeb/opp.deb) выбор считается завершённым.
 function debTurn(){
-  const firstMe=firstId()===ME.id,mh=!!myDeb,oh=!!(opp&&opp.deb);
-  if(firstMe){if(!mh)return 'me';if(!oh)return 'opp';return null}
-  if(!oh)return 'opp';if(!mh)return 'me';return null;
+  if(myDeb||(opp&&opp.deb))return null;
+  return firstId()===ME.id?'me':'opp';
 }
 function teamStats(side){let A=0,T=0,D=0;const n=layT(side,false).s.length;for(let i=0;i<n;i++){const e=effOf(side,i);if(!e)continue;A+=e.a;T+=e.t;D+=e.d}return{A,T,D}}
 function calc(){
@@ -979,17 +980,36 @@ function tryAttach(){
     if(total){countCombo(total);banner('✨ Комбо у тебя!','vil')}
   }
 }
+// Дополняет промежуточный кадр слияния картами, которые уже открыты,
+// но ещё не входят в текущее комбо. Они не должны мигать/исчезать на время эффекта.
+function completeFusionFrame(snapshot, snapshotSt, event, sourceEntries){
+  const s=snapshot.slice(),st=snapshotSt.map(group=>group?group.map(item=>({...item})):null);
+  const fused=new Set((event.mem||[]).map(m=>m.t));
+  const present=new Set(st.flatMap(group=>(group||[]).map(m=>m.t)));
+  for(const en of sourceEntries){
+    if(fused.has(en.t)||present.has(en.t))continue;
+    let at=s.indexOf(null);
+    if(at<0)at=s.length;
+    s[at]=en.c;
+    st[at]=[{c:en.c,t:en.t}];
+    present.add(en.t);
+  }
+  return {s,st};
+}
 // Проигрывает слияния на стороне S по очереди. labelOf(e) — подпись под колесом на первом шаге.
 async function playFusions(S,list,ck,labelOf){
   const sd=S==='me'?'m':'o';
+  const sourceEntries=seqDisp(S);
   for(const e of list){
     const fx=chr(e.id);
-    OV={side:S,s:e.before,st:e.stBefore};FZ=[];FN=-1;drawSlots();
+    const beforeFrame=completeFusionFrame(e.before,e.stBefore,e,sourceEntries);
+    OV={side:S,s:beforeFrame.s,st:beforeFrame.st};FZ=[];FN=-1;drawSlots();
     $('wlab').textContent=labelOf(e);
     await wait(1000);ck();
     FK=e.id;FZ=e.src.map(i=>sd+i);drawSlots();banner(fx.e+' '+fx.n+' '+fx.e,'fz k'+(-e.id));
     await wait(1900);ck();
-    OV={side:S,s:e.after,st:e.stAfter};FZ=[];FN=sd+e.at;drawSlots();
+    const afterFrame=completeFusionFrame(e.after,e.stAfter,e,sourceEntries);
+    OV={side:S,s:afterFrame.s,st:afterFrame.st};FZ=[];FN=sd+e.at;drawSlots();
     $('wlab').textContent=fx.e+' '+fx.n+' · ⚔'+fx.a+' 🧠'+fx.t+' 🛡'+fx.d+' — освободившиеся слоты выбираются дальше';
     await wait(1100);ck();
   }
