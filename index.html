@@ -69,6 +69,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.dgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .dbtn{background:var(--bg);color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:8px 4px;font-size:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
 .dbtn span{font-size:22px}.dbtn small{color:var(--mut);font-size:10px}.dbtn.on{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac) inset}
+.dbtn:disabled{filter:grayscale(1);opacity:.38;cursor:not-allowed;box-shadow:none!important;border-color:var(--ln)!important}.dbtn:disabled::after{content:"ВЫБРАНО СОПЕРНИКОМ";font-size:8px;color:var(--mut);font-weight:800}
 
 .coin.go{animation:flip 1.6s ease-in-out}
 .stg{transition:opacity .9s ease,transform .9s ease}
@@ -420,7 +421,7 @@ textarea.in{resize:none;font-family:inherit}
         <div class="pw" id="dbHint" style="margin:8px 0 4px;min-height:48px">Выбери ухудшение</div>
         <button class="btn" id="dbOk" disabled>Подтвердить</button>
       </div>
-      <div id="dbWait" class="stg off wt"><div style="font-size:38px">⏳</div><div>Первый игрок выбирает ухудшение<span class="dots"></span></div></div>
+      <div id="dbWait" class="stg off wt"><div style="font-size:38px">⏳</div><div>Соперник выбирает ухудшение<span class="dots"></span></div></div>
       <div id="wheelWrap" class="stg off"><div class="wheelBox" id="roul"><div class="pt"></div><canvas id="wheel" width="440" height="440"></canvas></div><div class="wlab" id="wlab"></div></div>
       <div class="water stg off" id="water"><div class="fg a" id="fa">🛡️</div><div class="fg b" id="fb">⚔️</div><div class="vs">VS</div></div>
     </div>
@@ -884,11 +885,27 @@ let stage='init',lock=true;
 const stgOn=id=>$(id).classList.remove('off'),stgOff=id=>$(id).classList.add('off');
 function setMsg(h){const m=$('msg');if(m.dataset.h===h)return;m.dataset.h=h;m.style.opacity=0;clearTimeout(m._t);m._t=setTimeout(()=>{m.innerHTML=h;m.style.opacity=h?1:0},260)}
 let myDeb=null,debSel=-1,slotSel=0,coinStarted=false,debDone=false,TS=null;
-// Ухудшение выбирает только один игрок за раунд — тот, кто ходит первым.
-// После подтверждения у обоих клиентов (myDeb/opp.deb) выбор считается завершённым.
 function debTurn(){
-  if(myDeb||(opp&&opp.deb))return null;
-  return firstId()===ME.id?'me':'opp';
+  const firstMe=firstId()===ME.id,mh=!!myDeb,oh=!!(opp&&opp.deb);
+  if(firstMe){if(!mh)return 'me';if(!oh)return 'opp';return null}
+  if(!oh)return 'opp';if(!mh)return 'me';return null;
+}
+// Если соперник уже выбрал ухудшение, второй игрок не может выбрать тот же вариант.
+function refreshDebChoices(){
+  const grid=$('dbGrid');if(!grid)return;
+  const blocked=(!myDeb&&opp&&opp.deb)?+opp.deb.k:-1;
+  grid.querySelectorAll('button[data-k]').forEach(b=>{
+    const isBlocked=(+b.dataset.k===blocked);
+    b.disabled=isBlocked;
+    b.classList.toggle('taken',isBlocked);
+    if(isBlocked&&debSel===blocked){debSel=-1;b.classList.remove('on');}
+  });
+  if(blocked>=0&&!myDeb){
+    const d=DB[blocked];
+    $('dbHint').textContent='Соперник уже выбрал '+d.e+' '+d.n+'. Этот вариант заблокирован — выбери другое ухудшение.';
+  }
+  const valid=debSel>=0&&debSel!==blocked&&(DB[debSel].all||slotSel>0);
+  $('dbOk').disabled=!valid;
 }
 function teamStats(side){let A=0,T=0,D=0;const n=layT(side,false).s.length;for(let i=0;i<n;i++){const e=effOf(side,i);if(!e)continue;A+=e.a;T+=e.t;D+=e.d}return{A,T,D}}
 function calc(){
@@ -909,6 +926,7 @@ function update(){
   renderBar();
   if(!coinDone||stage==='coin')return;
   if(stage==='deb'){
+    refreshDebChoices();
     const dt=debTurn();
     if(dt){
       $('pMe').classList.toggle('turn',dt==='me');$('pOpp').classList.toggle('turn',dt==='opp');
@@ -1151,8 +1169,15 @@ async function startGame(){
   renderBar();
   drawSlots();idleStrip();
   $('dbGrid').innerHTML=DB.map((d,i)=>`<button class="dbtn t${Math.floor(i/3)}" data-k="${i}"><span>${d.e}</span><b>${d.n}</b></button>`).join('');
-  const chk=()=>{$('dbOk').disabled=!(debSel>=0&&(DB[debSel].all||slotSel>0))};
-  $('dbGrid').querySelectorAll('button').forEach(b=>b.onclick=()=>{if(lock)return;debSel=+b.dataset.k;$('dbHint').textContent=DB[debSel].txt+(DB[debSel].all?'':' · нажми слот соперника ➜');$('dbGrid').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));chk();markTargets()});
+  const chk=()=>{const blocked=(!myDeb&&opp&&opp.deb)?+opp.deb.k:-1;$('dbOk').disabled=!(debSel>=0&&debSel!==blocked&&(DB[debSel].all||slotSel>0))};
+  $('dbGrid').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    if(lock||b.disabled||stage!=='deb'||debTurn()!=='me')return;
+    const blocked=(!myDeb&&opp&&opp.deb)?+opp.deb.k:-1;
+    if(+b.dataset.k===blocked)return;
+    debSel=+b.dataset.k;$('dbHint').textContent=DB[debSel].txt+(DB[debSel].all?'':' · нажми слот соперника ➜');
+    $('dbGrid').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));chk();markTargets();
+  });
+  refreshDebChoices();
   $('cOpp').onclick=e=>{
     const el=e.target.closest('.slot');
     if(!el||lock||stage!=='deb'||debTurn()!=='me')return;
@@ -1161,7 +1186,8 @@ async function startGame(){
     chk();markTargets();
   };
   $('dbOk').onclick=()=>{
-    if(lock||stage!=='deb'||debTurn()!=='me')return;
+    const blocked=(!myDeb&&opp&&opp.deb)?+opp.deb.k:-1;
+    if(lock||stage!=='deb'||debTurn()!=='me'||debSel<0||debSel===blocked)return;
     myDeb={k:debSel,slot:DB[debSel].all?null:slotSel};$('dbOk').disabled=true;
     G.presence({deb:myDeb});update();
   };
