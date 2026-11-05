@@ -344,16 +344,14 @@ textarea.in{resize:none;font-family:inherit}
   <div id="profile" class="hide">
     <div style="display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:6px"><div id="pfAv"></div><button class="btn sec" id="pfAvBtn" style="width:auto;margin-top:0;padding:0 14px;font-size:13px">Сменить аватарку</button><input type="file" id="pfAvIn" accept="image/*" class="hide"></div>
     <div id="pfNick" style="font-weight:800;font-size:20px"></div>
-    <div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="pfNew" maxlength="12" placeholder="Новый ник" autocapitalize="none" style="margin-top:0"><button class="btn" id="pfRename" style="width:auto;margin-top:0;padding:0 14px;font-size:13px">Сменить</button></div>
+    <div style="display:flex;gap:6px;margin-top:8px"><input class="in" id="pfNew" maxlength="12" placeholder="Новый ник" autocapitalize="none" style="margin-top:0"></div>
     <div id="pfMsg" class="pw" style="min-height:18px;margin-top:4px"></div>
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ln)">
       <div style="font-weight:700;margin-bottom:6px">Смена пароля</div>
       <input class="in" id="pfPassOld" type="password" maxlength="40" placeholder="Текущий пароль" autocomplete="current-password">
       <input class="in" id="pfPassNew" type="password" maxlength="40" placeholder="Новый пароль (от 6 символов)" autocomplete="new-password">
-      <button class="btn sec" id="pfPassChange">Изменить пароль</button>
     </div>
     <textarea class="in" id="pfBio" maxlength="120" rows="3" placeholder="О себе (по желанию)"></textarea>
-    <button class="btn" id="pfSave">Сохранить описание</button>
     <div class="stat3"><div><b id="pfW" style="color:var(--ok)">0</b><div class="pw">Победы</div></div><div><b id="pfL" style="color:#ff6b6b">0</b><div class="pw">Поражения</div></div><div><b id="pfR">–</b><div class="pw">Винрейт</div></div><div><b id="pfC" style="color:#ffe066">0</b><div class="pw">Комбо</div></div></div>
   <div class="wd">
     <div class="bp-sec">Короны</div>
@@ -361,6 +359,7 @@ textarea.in{resize:none;font-family:inherit}
     <div class="bp-sec">Крылья</div>
     <div class="wd-grid" id="wdWing"></div>
   </div>
+      <button class="btn" id="pfSaveAll">Сохранить изменения</button>
       <button class="btn sec" id="back4">Назад</button>
   </div>
   <div id="bpass" class="hide">
@@ -1831,14 +1830,16 @@ function renderProfile(){
   const w=me.wins||0,l=me.losses||0;
   $('pfNick').textContent=me.nick;$('pfC').textContent=me.combos||0;$('pfW').textContent=w;$('pfL').textContent=l;$('pfR').textContent=(w+l)?Math.round(100*w/(w+l))+'%':'–';
 }
+let stagedProfileAvatar=null;
 $('pfAvBtn').onclick=()=>$('pfAvIn').click();
 $('pfAvIn').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';
   if(!f||!me||!fdb)return;
   try{
-    const data=await cropAvatar(f);
-    await fdb.ref('users/'+me.uid+'/avatar').set(data);
-    $('pfMsg').textContent='Аватарка обновлена';
+    stagedProfileAvatar=await cropAvatar(f);
+    const img=document.createElement('img');img.src=stagedProfileAvatar;img.style.cssText='width:96px;height:96px;border-radius:50%;object-fit:cover';
+    $('pfAv').innerHTML='';$('pfAv').append(img);
+    $('pfMsg').textContent='Аватар выбран — нажми «Сохранить изменения»';
   }catch(x){$('pfMsg').textContent='Не удалось: '+(x.message||x)}
 };
 let accountLeaseRef=null,accountLeaseTimer=null;
@@ -2067,24 +2068,33 @@ $('fGo').onclick=async()=>{
 $('goProf').onclick=()=>{$('pfBio').value=me.bio||'';renderProfile();show('profile')};
 $('goFr').onclick=()=>{$('fRes').textContent='';show('friends')};
 $('back4').onclick=()=>show('home');$('back5').onclick=()=>show('home');
-$('pfSave').onclick=async()=>{
-  try{await fdb.ref('users/'+me.uid+'/bio').set($('pfBio').value.trim().slice(0,120));$('pfSave').textContent='Сохранено ✓';setTimeout(()=>$('pfSave').textContent='Сохранить описание',1500)}catch(e){err('Ошибка: '+(e.message||e))}
-};
-$('pfPassChange').onclick=async()=>{
-  const old=$('pfPassOld').value,neu=$('pfPassNew').value,m=$('pfMsg'),u=auth&&auth.currentUser;
-  if(!u||!u.email){m.textContent='Смена пароля доступна только для аккаунта с паролем';return}
-  if(!old){m.textContent='Введи текущий пароль';return}
-  if(neu.length<6){m.textContent='Новый пароль должен содержать минимум 6 символов';return}
-  $('pfPassChange').disabled=true;m.textContent='';
+$('pfSaveAll').onclick=async()=>{
+  const btn=$('pfSaveAll'),m=$('pfMsg'),u=auth&&auth.currentUser;
+  const nn=$('pfNew').value.trim(),bio=$('pfBio').value.trim().slice(0,120);
+  const old=$('pfPassOld').value,neu=$('pfPassNew').value;
+  if(nn&&(!nickOk(nn))){m.textContent='Ник: 3–12 символов, буквы, цифры или _';return}
+  if(nn&&nn.toLowerCase()!==me.nick.toLowerCase()){
+    const taken=(await fdb.ref('nicks/'+nn.toLowerCase()).once('value')).val();
+    const owner=typeof taken==='string'?taken:(taken&&taken.u);
+    if(owner&&owner!==me.uid){m.textContent='Этот ник уже занят';return}
+  }
+  if((old||neu)&&(!u||!u.email)){m.textContent='Смена пароля доступна только для аккаунта с паролем';return}
+  if((old||neu)&&(!old||neu.length<6)){m.textContent=!old?'Введи текущий пароль':'Новый пароль должен содержать минимум 6 символов';return}
+  btn.disabled=true;m.textContent='Сохраняю…';
   try{
-    const cred=firebase.auth.EmailAuthProvider.credential(u.email,old);
-    await u.reauthenticateWithCredential(cred);
-    await u.updatePassword(neu);
-    $('pfPassOld').value='';$('pfPassNew').value='';
-    m.textContent='Пароль успешно изменён ✓';
+    if(nn&&nn.toLowerCase()!==me.nick.toLowerCase())await renameNick(nn);
+    await fdb.ref('users/'+me.uid+'/bio').set(bio);
+    if(stagedProfileAvatar){await fdb.ref('users/'+me.uid+'/avatar').set(stagedProfileAvatar);stagedProfileAvatar=null}
+    if(old||neu){
+      const cred=firebase.auth.EmailAuthProvider.credential(u.email,old);
+      await u.reauthenticateWithCredential(cred);
+      await u.updatePassword(neu);
+      $('pfPassOld').value='';$('pfPassNew').value='';
+    }
+    $('pfNew').value='';m.textContent='Все изменения сохранены ✓';renderProfile();
   }catch(e){
-    m.textContent=e.code==='auth/wrong-password'||e.code==='auth/invalid-credential'?'Неверный текущий пароль':e.code==='auth/weak-password'?'Новый пароль слишком простой':('Не удалось изменить пароль: '+(e.message||e));
-  }finally{$('pfPassChange').disabled=false}
+    m.textContent=e.code==='auth/wrong-password'||e.code==='auth/invalid-credential'?'Неверный текущий пароль':e.code==='auth/weak-password'?'Новый пароль слишком простой':'Не удалось сохранить: '+(e.msg||e.message||e);
+  }finally{btn.disabled=false}
 };
 $('logout').onclick=async()=>{
   try{if(me)await fdb.ref('status/'+me.uid+'/connections/'+TAB).remove()}catch(e){}
