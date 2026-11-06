@@ -193,6 +193,9 @@ textarea.in{resize:none;font-family:inherit}
 .avw>.av{position:relative;z-index:1}
 .avw .dc{position:absolute;pointer-events:none;max-width:none;height:auto;z-index:0}
 .avw .dc.w{left:50%;top:50%;transform:translate(-50%,-50%) scaleX(1.18)}
+.avw .dc.w-half{left:50%;top:50%;}
+.avw .dc.w-left{clip-path:inset(0 50% 0 0);transform:translate(calc(-50% - var(--wing-gap,12px)),-50%) scaleX(1.18)}
+.avw .dc.w-right{clip-path:inset(0 0 0 50%);transform:translate(calc(-50% + var(--wing-gap,12px)),-50%) scaleX(1.18)}
 .avw .dc.c{left:50%;z-index:2;transform:translateX(-50%)}
 .pl{overflow:visible!important}
 .pl .nm{overflow:hidden}
@@ -1930,13 +1933,13 @@ function avEl(u,size,ring){
   const cr=eq.crown?CM.byId(eq.crown):null,wg=eq.wing?CM.byId(eq.wing):null;
   const rc=(ring&&ring!=='var(--ln)')?ring:(cr?cr.col:ring);
   const wrap=document.createElement('div');wrap.className='avw';wrap.style.width=size+'px';wrap.style.height=size+'px';
-  if(wg){const w=new Image();w.className='dc w';w.alt='';w.src=wg.img;w.style.width=Math.round(size*1.6)+'px';wrap.append(w);wrap.style.margin='0 '+Math.round(size*0.3)+'px'}
+  if(wg){const ww=Math.round(size*1.6);const wl=new Image();wl.className='dc w-half w-left';wl.alt='';wl.src=wg.img;wl.style.width=ww+'px';const wr=new Image();wr.className='dc w-half w-right';wr.alt='';wr.src=wg.img;wr.style.width=ww+'px';wrap.append(wl,wr);wrap.style.setProperty('--wing-gap',Math.round(size*0.13)+'px');wrap.style.margin='0 '+Math.round(size*0.3)+'px'}
   const d=document.createElement('div');d.className='av';
   d.style.cssText='width:'+size+'px;height:'+size+'px;font-size:'+Math.round(size*.45)+'px'+(rc?';border:'+Math.max(2,Math.round(size*.05))+'px solid '+rc:'')+(cr?';box-shadow:0 0 '+Math.round(size*.25)+'px '+cr.col+'99':'');
   if(u&&u.avatar){const i=document.createElement('img');i.src=u.avatar;i.alt='';i.style.cssText='width:100%;height:100%;object-fit:cover';d.append(i)}
   else d.textContent=((u&&u.nick)||'?').charAt(0).toUpperCase();
   wrap.append(d);
-  if(cr){const c=new Image();c.className='dc c';c.alt='';c.src=cr.img;const cw=Math.round(size*1.0);c.style.width=cw+'px';c.style.top=Math.round(-cw/2.2*0.8)+'px';wrap.append(c)}
+  if(cr){const c=new Image();c.className='dc c';c.alt='';c.src=cr.img;const isNightCrown=cr.id==='crown_03';const crownScale=isNightCrown?1.525:1.22;const cw=Math.round(size*crownScale);c.style.width=cw+'px';const crownTopFactor=isNightCrown?0.46:0.58;c.style.top=Math.round(-cw/2.2*crownTopFactor)+'px';wrap.append(c)}
   return wrap;
 }
 function cropAvatar(file){
