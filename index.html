@@ -646,6 +646,9 @@ const comboHitValid=(cards,id,positions,st)=>{
 // не заменяют отсутствующего участника, а виртуальные комбо не считаются героями.
 const isVillainTrio=(cards,st)=>Array.isArray(cards)&&VIL.length===3&&new Set(VIL).size===3&&VIL.every(v=>Number.isInteger(v)&&v>=0&&v<CH.length&&comboIndex(cards,v,st)>=0);
 let OV=null,FZ=[],FN=-1,HL=[],FK=-1;
+// Позиции уже показанных сущностей. Нужны, чтобы комбо не перетаскивало
+// посторонние карты в освободившиеся верхние слоты при повторной раскладке.
+const SLOT_HINT={me:new Map(),opp:new Map()};
 let STL={flying:null,credited:{me:false,opp:false}}; // полёт похищенной карты в процессе // OV — временная раскладка стороны на время анимации слияния
 // Раскладка карт по слотам. Комбо-слияния могут срабатывать сколько угодно раз за игру (в т.ч. одно и то же повторно и разные подряд).
 // Слияние: исходные слоты освобождаются, результат встаёт в слот с наименьшим номером.
@@ -707,7 +710,52 @@ function blockRuleForSide(S){
   if(!D||!D.block||D.steal)return {all:false,slot:0};
   return {all:!!D.all,slot:Number(d.slot)||0};
 }
-function laySideX2(S,entries){return layX2(entries,blockRuleForSide(S));}
+function applySlotHints(layout,S,capacity){
+  const hint=SLOT_HINT[S];
+  if(!hint||!hint.size)return fitLayoutToCapacity(layout,capacity);
+  const cap=Math.max(0,Math.floor(Number(capacity)||0));
+  const src=fitLayoutToCapacity(layout,cap),groups=[];
+  for(let i=0;i<cap;i++){
+    if(src.s[i]==null)continue;
+    const meta=src.st[i]||[];
+    const tokens=[...new Set(meta.map(m=>m&&m.t).filter(t=>typeof t==='string'&&t.length))];
+    const known=tokens.filter(t=>hint.has(t)).map(t=>hint.get(t));
+    const allKnown=tokens.length>0&&tokens.every(t=>hint.has(t));
+    const positions=[...new Set(known.filter(Number.isInteger))];
+    // Все участники прежней карты уже занимали один слот — карта остаётся там.
+    // Если несколько старых карт объединились, комбо занимает самый верхний
+    // из их прежних слотов, а не сдвигает остальных участников поля.
+    const pinned=allKnown&&positions.length>0;
+    const target=pinned?(positions.length===1?positions[0]:Math.min(...positions)):i;
+    groups.push({i,target,pinned,c:src.s[i],st:src.st[i]});
+  }
+  const outS=Array(cap).fill(null),outSt=Array(cap).fill(null);
+  // Сначала закрепляем уже существовавшие карты, затем размещаем новые.
+  groups.sort((a,b)=>(a.pinned===b.pinned?0:(a.pinned?-1:1))||a.i-b.i);
+  for(const g of groups){
+    let at=g.pinned&&g.target>=0&&g.target<cap&&outS[g.target]==null?g.target:-1;
+    if(at<0&&g.i>=0&&g.i<cap&&outS[g.i]==null)at=g.i;
+    if(at<0)at=outS.indexOf(null);
+    if(at<0)continue;
+    outS[at]=g.c;outSt[at]=g.st?g.st.map(m=>({...m})):null;
+  }
+  return {s:outS,st:outSt};
+}
+function rememberSlotHints(S,layout){
+  if(OV&&OV.side===S)return; // промежуточные кадры слияния не меняют базовые позиции
+  const next=new Map();
+  (layout.st||[]).forEach((group,i)=>{
+    (group||[]).forEach(m=>{if(m&&typeof m.t==='string')next.set(m.t,i)});
+  });
+  SLOT_HINT[S]=next;
+}
+function laySideX2(S,entries){
+  const raw=layX2(entries,blockRuleForSide(S));
+  // layX2 может временно сжать массив после комбо; держим физическую
+  // вместимость поля, чтобы закреплённая нижняя карта не теряла свой слот.
+  const stable=applySlotHints(raw,S,Math.max(raw.s.length,SIZE+1));
+  return {...raw,s:stable.s,st:stable.st};
+}
 function lay(cards){return layX(cards).s}
 
 const fill=cards=>lay(cards).filter(c=>c!=null).length;
@@ -793,14 +841,15 @@ function fitLayoutToCapacity(layout,capacity){
   const src=(layout&&Array.isArray(layout.s))?layout.s:[];
   const srcSt=(layout&&Array.isArray(layout.st))?layout.st:[];
   const overflow=[];
-  // Заполняем физические слоты строго сверху вниз: после слияния/похищения
-  // первая свободная позиция заполняется следующей картой, а не сохраняется
-  // старый разреженный индекс (из-за него на поле оставались пустые окна сверху).
+  // Ограничиваем вместимость, но сохраняем физические индексы слотов.
+  // При комбо карты, не участвующие в слиянии, остаются на прежних местах.
+  // После кражи сдвиг вниз→вверх уже выполняется самой layX2: украденная
+  // сущность исключается из входной последовательности, и нижние карты
+  // занимают освободившиеся места в правильном порядке.
   for(let i=0;i<src.length;i++){
     if(src[i]==null)continue;
-    const at=s.indexOf(null);
-    if(at<0){overflow.push(i);continue}
-    s[at]=src[i];st[at]=srcSt[i]?srcSt[i].map(item=>({...item})):null;
+    if(i>=cap){overflow.push(i);continue}
+    s[i]=src[i];st[i]=srcSt[i]?srcSt[i].map(item=>({...item})):null;
   }
   return {s,st,overflow};
 }
@@ -926,11 +975,16 @@ const rv=()=>stage==='trans'||stage==='spin'||stage==='battle';
 // Кэш анимаций относится только к текущему визуальному поколению (раунд/матч).
 // Номера источников o0/o1 повторяются в каждом раунде, поэтому одного токена недостаточно.
 let visualGeneration=0;
+let SHIFT_AFTER_STEAL=null,SHIFT_LOCK_SIDE=null; // FLIP жертвы; блок повторной перерисовки до конца цепочки анимаций
 const DRAWN={cMe:{},cOpp:{}};
 function resetVisualState(){
   visualGeneration++;
   DRAWN.cMe={};
   DRAWN.cOpp={};
+  SLOT_HINT.me.clear();
+  SLOT_HINT.opp.clear();
+  SHIFT_AFTER_STEAL=null;
+  SHIFT_LOCK_SIDE=null;
 }
 // У каждого экземпляра карты уникальный ключ: поколение + сторона + значение + исходные экземпляры.
 function visualCardKey(side,members,slot,card){
@@ -952,7 +1006,17 @@ function layTop(el){
 }
 function drawSlots(){
   for(const [id,side] of [['cMe','me'],['cOpp','opp']]){
+    // После FLIP не пересоздаём DOM жертвы, пока проигрываются комбо/союз
+    // у вора: иначе даже корректная анимация обрывается следующей перерисовкой.
+    if(SHIFT_LOCK_SIDE===side&&SHIFT_AFTER_STEAL!==side)continue;
     const host=$(id);
+    const shiftThisSide=SHIFT_AFTER_STEAL===side,oldTops=new Map();
+    // Сохраняем экранные позиции оставшихся карт до перерисовки колонки.
+    // После кражи они получат новые слоты, и FLIP плавно доведёт их до них.
+    if(shiftThisSide)host.querySelectorAll('.slot[data-key][data-i]').forEach(el=>{
+      const key=el.dataset.key||'';
+      if(key.includes('|card'))oldTops.set(key,layTop(el));
+    });
     let layout=layT(side,true),arr=layout.s;
     // Украденная карта, пока вор ещё вытягивает свои: стоит внизу колонки (туда же она летит), а не прыгает на первое свободное место.
     // Если она уже участвует в слиянии, показываем обычную раскладку.
@@ -977,6 +1041,7 @@ function drawSlots(){
     const reserveIncoming=pend.length?1:(STL.flying===side?1:0);
     const base=Math.max(0,n-reserveIncoming);
     layout=fitLayoutToCapacity(layout,base);arr=layout.s;
+    rememberSlotHints(side,layout);
     const prev=DRAWN[id],now={},sd=side==='me'?'m':'o';
     const sixthWasVisible=!!host.querySelector('.slot[data-i="'+(SIZE+1)+'"]');
     const sixthEnter=i=>(i===SIZE&&!sixthWasVisible)?' sixth-slot-enter':'';
@@ -1011,7 +1076,19 @@ function drawSlots(){
       return `<div class="slot${hit&&DB[dd.k].block?' dead':''}${sixthEnter(i)}" data-i="${i+1}" data-key="${side}|ph|${phOrd(i)}"><div class="e" style="font-size:26px">?</div>карта ${i+1}${hit?`<div class="bd">${DB[dd.k].e} ${DB[dd.k].block?'выбыл':DB[dd.k].n}</div>`:''}</div>`;
     }).join('');
     DRAWN[id]=now;
-    // Позиции слотов неподвижны: карты не перелетают между строками при перерисовке.
+    if(shiftThisSide){
+      host.querySelectorAll('.slot[data-key][data-i]').forEach(el=>{
+        const key=el.dataset.key||'';
+        if(!oldTops.has(key))return;
+        const delta=oldTops.get(key)-layTop(el);
+        // Анимируем только карты, поднявшиеся после освобождения слота.
+        if(delta>2)el.animate([
+          {transform:`translateY(${delta}px)`},
+          {transform:'translateY(0px)'}
+        ],{duration:560,easing:'cubic-bezier(.2,.8,.2,1)'});
+      });
+      SHIFT_AFTER_STEAL=null;
+    }
   }
   markTargets();
 }
@@ -1248,7 +1325,7 @@ async function stealFly(V,l){
   if(srcEl)srcEl.style.visibility='hidden'; // карта целиком уходит из слота: место пустое, пока она летит
   const dsts=$(T==='me'?'cMe':'cOpp').querySelectorAll('.slot');
   const dstEl=dsts[dsts.length-1];
-  if(!srcEl||!dstEl||val==null){STL.flying=null;drawSlots();return}
+  if(!srcEl||!dstEl||val==null){STL.flying=null;SLOT_HINT[V].clear();SHIFT_AFTER_STEAL=V;SHIFT_LOCK_SIDE=V;drawSlots();return}
   const a=srcEl.getBoundingClientRect(),b=dstEl.getBoundingClientRect();
   const g=document.createElement('div');
   g.className='slot f ghost r'+rar(val);
@@ -1269,7 +1346,7 @@ async function stealFly(V,l){
       {transform:'translate('+dx+'px,'+dy+'px) scale(1)',offset:1}
     ],{duration:1000,easing:'cubic-bezier(.45,0,.2,1)',fill:'forwards'});
     await anim.finished.catch(()=>{});
-  }finally{g.remove();STL.flying=null}
+  }finally{g.remove();STL.flying=null;SLOT_HINT[V].clear();SHIFT_AFTER_STEAL=V;SHIFT_LOCK_SIDE=V}
 }
 // Комбо, собранное украденными картами, засчитывается вору (мне — если я вор)
 function tryAttach(){
@@ -1296,18 +1373,40 @@ function fusionPositionMap(S){
   return positions;
 }
 function completeFusionFrame(snapshot, snapshotSt, event, sourceEntries, stablePositions, capacity, stableMeta){
-  const initial=fitLayoutToCapacity({s:snapshot,st:snapshotSt},capacity);
-  const s=initial.s,st=initial.st;
   const fused=new Set((event.mem||[]).map(m=>m.t));
-  const present=new Set(st.flatMap(group=>(group||[]).map(m=>m.t)));
-  // Карты, которые уже стояли на поле и не входят в текущее комбо,
-  // возвращаем в их фактические слоты до начала эффекта. Новые (ещё не
-  // показанные) сущности занимают первый свободный слот по обычным правилам.
+  const initial=fitLayoutToCapacity({s:snapshot,st:snapshotSt},capacity);
+  const groups=[];
+  // Сначала закрепляем целые карты, не участвующие в текущем комбо.
+  // Раньше здесь восстанавливались только полностью исчезнувшие сущности;
+  // уже присутствующая карта могла остаться в пересчитанном верхнем слоте.
+  for(let i=0;i<capacity;i++){
+    if(initial.s[i]==null)continue;
+    const meta=initial.st[i]||[];
+    const tokens=[...new Set(meta.map(m=>m&&m.t).filter(t=>typeof t==='string'&&t.length))];
+    const safeTokens=tokens.filter(t=>!fused.has(t));
+    const known=safeTokens.map(t=>stablePositions&&stablePositions.get(t)).filter(Number.isInteger);
+    const allKnown=safeTokens.length>0&&safeTokens.every(t=>stablePositions&&stablePositions.has(t));
+    const positions=[...new Set(known)];
+    const pinned=allKnown&&positions.length>0&&safeTokens.length===tokens.length;
+    const target=pinned?(positions.length===1?positions[0]:Math.min(...positions)):i;
+    groups.push({i,target,pinned,c:initial.s[i],st:initial.st[i]});
+  }
+  const s=Array(capacity).fill(null),st=Array(capacity).fill(null);
+  groups.sort((a,b)=>(a.pinned===b.pinned?0:(a.pinned?-1:1))||a.i-b.i);
+  for(const g of groups){
+    let at=g.pinned&&g.target>=0&&g.target<capacity&&s[g.target]==null?g.target:-1;
+    if(at<0&&g.i>=0&&g.i<capacity&&s[g.i]==null)at=g.i;
+    if(at<0)at=s.indexOf(null);
+    if(at<0)continue;
+    s[at]=g.c;st[at]=g.st?g.st.map(m=>({...m})):null;
+  }
+  const present=new Set(st.flatMap(group=>(group||[]).map(m=>m&&m.t).filter(Boolean)));
+  // Сущности, которые ещё не попали в снимок (например, карта ниже места комбо),
+  // возвращаем в их прежние физические слоты.
   for(const en of sourceEntries){
     if(fused.has(en.t)||present.has(en.t))continue;
     let at=stablePositions&&stablePositions.has(en.t)?stablePositions.get(en.t):s.indexOf(null);
     if(!Number.isInteger(at)||at<0||at>=capacity||s[at]!=null)at=s.indexOf(null);
-    // В кадре слияния никогда не расширяем массив за пределы игрового поля.
     if(at<0||at>=capacity)continue;
     s[at]=en.c;
     const saved=stableMeta&&stableMeta.get(en.t);
@@ -1389,7 +1488,8 @@ async function reveal(side,card){
         await playUnion(T,postT,RT.st,ck);
       }
       tryAttach();
-      drawSlots();
+      // Источник уже показан с FLIP; не трогаем его DOM до конца цепочки эффектов.
+      SHIFT_LOCK_SIDE=null;
       animating=false;update();return;
     }
     const R=laySideX2(side,seqDisp(side)),post=R.s;
@@ -1406,7 +1506,7 @@ async function reveal(side,card){
     }else if(!fuse.length)$('wlab').textContent=x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d;
     tryAttach();
     animating=false;update();
-  }catch(e){OV=null;FZ=[];FN=-1;HL=[];STL.flying=null;if(e!=='x'){animating=false;console.error(e)}}
+  }catch(e){OV=null;FZ=[];FN=-1;HL=[];STL.flying=null;SHIFT_AFTER_STEAL=null;SHIFT_LOCK_SIDE=null;if(e!=='x'){animating=false;console.error(e)}}
 }
 $('spin').onclick=()=>{
   if(lock||stage!=='spin'||animating||!myTurn()||boardDone('me'))return;
