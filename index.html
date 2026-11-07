@@ -336,7 +336,13 @@ textarea.in{resize:none;font-family:inherit}
 .bg-cell em{font-style:normal;display:inline-block;margin-top:4px;color:#c9a5ff;font-size:9px;font-weight:900;letter-spacing:.7px}
 .bg-empty{grid-column:1/-1;padding:10px;border:1px dashed #6a5188;border-radius:7px;background:#171024}
 /* Фон виден только в боевой карточке. Свечение — исключительно на своей карточке в свой ход. */
-#game .pl.bp-bg{flex:1.12;min-width:0;padding-left:10px;padding-right:10px;background-color:#140d23!important;background-image:linear-gradient(90deg,rgba(8,5,17,.72),rgba(8,5,17,.32) 58%,rgba(8,5,17,.56)),var(--player-bg);background-repeat:no-repeat;background-size:cover;background-position:center 45%;border-color:var(--player-accent,#8f6ac2);box-shadow:none!important}
+#game .pl.bp-bg{position:relative;isolation:isolate;flex:1.12;min-width:0;padding-left:10px;padding-right:10px;background-color:#140d23!important;background-image:none!important;border-color:var(--player-accent,#8f6ac2);box-shadow:none!important}
+/* Фон игрока рисуется отдельным слоем: текст и аватар остаются читаемыми. */
+#game .pl.bp-bg::before{content:"";position:absolute;inset:0;border-radius:inherit;background-image:var(--player-bg);background-repeat:no-repeat;background-size:cover;background-position:center 45%;z-index:0;pointer-events:none}
+#game .pl.bp-bg::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(90deg,rgba(8,5,17,.72),rgba(8,5,17,.32) 58%,rgba(8,5,17,.56));z-index:1;pointer-events:none}
+#game .pl.bp-bg>*{position:relative;z-index:2}
+/* Зеркалим только фон соперника на этом клиенте. У владельца его фон остаётся обычным. */
+#game #pOpp.bp-bg::before{transform:scaleX(-1)}
 #game #pMe.bp-bg.turn{border-color:var(--player-accent,#8f6ac2)!important;box-shadow:inset 0 0 0 2px var(--player-accent,#8f6ac2),0 0 7px var(--player-glow,#8f6ac288),0 0 13px var(--player-glow,#8f6ac244)!important}
 #game #pOpp.bp-bg.turn{border-color:var(--player-accent,#8f6ac2)!important;box-shadow:none!important}
 #game .pl.bp-bg .nm{padding:3px 7px;border-radius:6px;background:rgba(10,6,22,.68);color:#fff;text-shadow:0 1px 3px #000;box-shadow:0 1px 5px #08041066}
@@ -561,41 +567,101 @@ const FUSALL=[FUSID,FUSID2,FUSID3];
 const chr=c=>c===FUSID?FUS:c===FUSID2?FUS2:c===FUSID3?FUS3:CH[c];
 const ix=id=>CH.findIndex(x=>x.id===id);
 const CMC=['applebloom','scootaloo','sweetie'].map(ix),APL=['applejack','applebloom','granny'].map(ix),VIL=['chrysalis','tirek','cozy'].map(ix),TW=ix('twilight'),FRN=['pinkie','rarity','applejack','fluttershy','rainbow'].map(ix),VB={a:4,t:2,d:3};
-// Для «Силы дружбы»: после Искорки и двух разных друзей каждый дополнительный друг даёт +5 ко всем трём характеристикам. Сохранённый бонус переносится вместе с украденной картой.
-const friendshipExtra=members=>{let hasTwilight=false,friendCount=0,carried=0;const kinds=new Set();(members||[]).forEach(m=>{if(!m)return;const b=Number(m.b)||0;if(b){carried+=b;return}if(m.c===TW)hasTwilight=true;if(FRN.includes(m.c)){friendCount++;kinds.add(m.c)}});return carried+(hasTwilight&&kinds.size>=2?Math.max(0,friendCount-2)*5:0)};
+// Для «Силы дружбы»: после Искорки и двух разных друзей каждый следующий
+// уникальный друг добавляется в уже собранное комбо и даёт +5 ко всем характеристикам.
+// Вложенные участники сохраняются и при краже готовой «Силы дружбы».
+const friendshipMembers=members=>{
+  const out=[];const visit=m=>{if(!m)return;if(Array.isArray(m.members)&&m.members.length){m.members.forEach(visit);return}out.push(m)};
+  (members||[]).forEach(visit);return out;
+};
+const friendshipCharacterIds=members=>friendshipMembers(members).map(m=>m.c).filter(c=>Number.isInteger(c)&&c>=0&&c<CH.length);
+// Заблокированный источник остаётся на поле, но не участвует ни в одном комбо.
+const slotHasBlockedSource=(st,i)=>Array.isArray(st&&st[i])&&st[i].some(m=>m&&m.blocked===true);
+const comboIndex=(cards,id,st)=>Array.isArray(cards)?cards.findIndex((c,i)=>c===id&&!slotHasBlockedSource(st,i)):-1;
+const friendshipExtra=members=>{let hasTwilight=false,carried=0;const kinds=new Set();friendshipMembers(members).forEach(m=>{const b=Number(m.b)||0;if(b){carried+=b;return}if(m.c===TW)hasTwilight=true;if(FRN.includes(m.c))kinds.add(m.c)});return carried+(hasTwilight&&kinds.size>=2?Math.max(0,kinds.size-2)*5:0)};
+// Единый строгий валидатор комбо: источниками могут быть только реальные карты
+// (не виртуальные результаты комбо), а каждый источник обязан занимать отдельный слот.
+const comboIdsValid=ids=>Array.isArray(ids)&&ids.length>0&&new Set(ids).size===ids.length&&ids.every(v=>Number.isInteger(v)&&v>=0&&v<CH.length);
+const comboPositions=(cards,ids,st)=>{if(!comboIdsValid(ids))return null;const positions=ids.map(v=>comboIndex(cards,v,st));return positions.every(i=>i>=0&&Number.isInteger(cards[i])&&cards[i]>=0&&cards[i]<CH.length)&&new Set(positions).size===ids.length?positions:null};
+const comboHitValid=(cards,id,positions,st)=>{
+  if(!Array.isArray(cards)||!Array.isArray(positions)||new Set(positions).size!==positions.length||!positions.every(i=>Number.isInteger(i)&&i>=0&&i<cards.length))return false;
+  // Блокировка проверяется до слияния, а не только при расчёте характеристик.
+  if(positions.some(i=>slotHasBlockedSource(st,i)))return false;
+  const source=positions.map(i=>cards[i]);
+  // Расширение уже готовой «Силы дружбы»: один новый, ещё не участвовавший друг.
+  if(id===FUSID&&source.includes(FUSID)){
+    if(positions.length!==2)return false;
+    const fpos=positions.find(i=>cards[i]!==FUSID),cpos=positions.find(i=>cards[i]===FUSID);
+    if(fpos==null||cpos==null||!FRN.includes(cards[fpos]))return false;
+    const known=friendshipCharacterIds(st&&st[cpos]);
+    return known.includes(TW)&&new Set(known.filter(c=>FRN.includes(c))).size>=2&&!known.includes(cards[fpos]);
+  }
+  if(source.some(c=>!Number.isInteger(c)||c<0||c>=CH.length))return false;
+  if(id===FUSID)return positions.length>=3&&source.includes(TW)&&new Set(source.filter(c=>FRN.includes(c))).size>=2&&source.every(c=>c===TW||FRN.includes(c));
+  const expected=id===FUSID2?CMC:id===FUSID3?APL:null;
+  return !!expected&&expected.length===3&&new Set(expected).size===3&&source.length===3&&expected.every(c=>source.includes(c));
+};
+// Для «Злодейского союза» нужны все три разные реальные карты. Повторы одного злодея
+// не заменяют отсутствующего участника, а виртуальные комбо не считаются героями.
+const isVillainTrio=(cards,st)=>Array.isArray(cards)&&VIL.length===3&&new Set(VIL).size===3&&VIL.every(v=>Number.isInteger(v)&&v>=0&&v<CH.length&&comboIndex(cards,v,st)>=0);
 let OV=null,FZ=[],FN=-1,HL=[],FK=-1;
 let STL={flying:null,credited:{me:false,opp:false}}; // полёт похищенной карты в процессе // OV — временная раскладка стороны на время анимации слияния
 // Раскладка карт по слотам. Комбо-слияния могут срабатывать сколько угодно раз за игру (в т.ч. одно и то же повторно и разные подряд).
 // Слияние: исходные слоты освобождаются, результат встаёт в слот с наименьшим номером.
 const RULES=[
-  {id:FUSID,find:s=>{const tw=s.indexOf(TW);if(tw<0)return null;const fp=[];s.forEach((v,i)=>{if(FRN.includes(v))fp.push(i)});return new Set(fp.map(i=>s[i])).size>=2?[tw,...fp]:null}},
-  {id:FUSID2,find:s=>CMC.every(v=>s.includes(v))?CMC.map(v=>s.indexOf(v)):null},
-  {id:FUSID3,find:s=>APL.every(v=>s.includes(v))?APL.map(v=>s.indexOf(v)):null}
+  // Сначала расширяем уже собранную «Силу дружбы» новым уникальным другом.
+  // Только если её ещё нет, собираем основу из Искорки и двух разных друзей.
+  {id:FUSID,find:(s,st)=>{
+    const fused=comboIndex(s,FUSID,st);
+    if(fused>=0){const known=friendshipCharacterIds(st&&st[fused]);for(const friend of FRN){if(known.includes(friend))continue;const at=comboIndex(s,friend,st);if(at>=0)return [fused,at]}return null}
+    if(!comboIdsValid([TW])||!comboIdsValid(FRN))return null;
+    const tw=comboIndex(s,TW,st);if(tw<0)return null;const fp=FRN.map(v=>comboIndex(s,v,st)).filter(i=>i>=0);return fp.length>=2?[tw,...fp]:null
+  }},
+  {id:FUSID2,find:(s,st)=>comboPositions(s,CMC,st)},
+  {id:FUSID3,find:(s,st)=>comboPositions(s,APL,st)}
 ];
 // Возвращает итоговую раскладку s и список слияний ev: {k — номер карты, id, src — слоты-источники, at — слот результата, before/after — снимки раскладки}
 // Слияние запоминает исходные карты (st), чтобы комбо можно было украсть целиком.
 // ents: [{c, t}] — t: 'o'+номер (своя карта) или 'i'+номер (украденная)
-function layX2(ents){
+function layX2(ents,blockRule={}){
   const s=[],st=[],ev=[];
   ents.forEach((en,k)=>{
-    const p=s.indexOf(null);
-    if(p>=0){s[p]=en.c;st[p]=[{c:en.c,t:en.t,b:en.b||0}]}else{s.push(en.c);st.push([{c:en.c,t:en.t,b:en.b||0}])}
+    let p=s.indexOf(null);
+    // Первый свободный слот существует и тогда, когда массив ещё пуст: в этом
+    // случае это индекс s.length, а не -1. Иначе блокировка первого слота терялась.
+    if(p<0)p=s.length;
+    const sourceMeta={c:en.c,t:en.t,b:en.b||0,blocked:!!en.blocked||!!blockRule.all||(Number(blockRule.slot)>0&&p===Number(blockRule.slot)-1),members:Array.isArray(en.members)?en.members.map(m=>({...m})):null};
+    s[p]=en.c;st[p]=[sourceMeta];
     for(let g=0;g<8;g++){
       let hit=null;
-      for(const r of RULES){const ps=r.find(s);if(ps){hit={r,ps};break}}
+      for(const r of RULES){const ps=r.find(s,st);if(ps&&comboHitValid(s,r.id,ps,st)){hit={r,ps};break}}
       if(!hit)break;
       const before=s.slice(),stBefore=st.map(group=>group?group.map(item=>({...item})):null),m=Math.min(...hit.ps);
+      const extend=hit.r.id===FUSID&&hit.ps.some(i=>s[i]===FUSID);
       const mem=hit.ps.flatMap(i=>st[i]||[]);
+      // Повтор одного и того же экземпляра в источниках — признак повреждённой раскладки.
+      // В такой ситуации слияние отменяется, а не создаёт ложную виртуальную карту.
+      if(!mem.length||new Set(mem.map(item=>item&&item.t)).size!==mem.length)break;
       hit.ps.forEach(i=>{s[i]=null;st[i]=null});
       s[m]=hit.r.id;st[m]=mem;
       const after=s.slice(),stAfter=st.map(group=>group?group.map(item=>({...item})):null);
-      ev.push({k,tok:en.t,id:hit.r.id,src:hit.ps.slice(),at:m,before,after,mem,stBefore,stAfter});
+      ev.push({k,tok:en.t,id:hit.r.id,extend,src:hit.ps.slice(),at:m,before,after,mem,stBefore,stAfter});
     }
   });
   return {s,st,ev};
 }
 function evKey(e){return e.id+':'+(e.mem||[]).map(m=>m.t).sort().join(',')}
-function layX(cards){return layX2(cards.map((c,k)=>({c,t:'o'+k})))}
+function layX(cards){return layX2(cards.map((c,k)=>({c,t:'o'+k})));}
+// На поле стороны S действует блокировка, выбранная её соперником.
+function blockRuleForSide(S){
+  const d=S==='me'?(opp&&opp.deb):myDeb;
+  const D=d&&DB[d.k];
+  // Похищение переносит целую карту/комбо; его block-флаг — статус выбытия,
+  // а не предварительная блокировка комбо. Предварительный запрет действует для Нокаута.
+  if(!D||!D.block||D.steal)return {all:false,slot:0};
+  return {all:!!D.all,slot:Number(d.slot)||0};
+}
+function laySideX2(S,entries){return layX2(entries,blockRuleForSide(S));}
 function lay(cards){return layX(cards).s}
 
 const fill=cards=>lay(cards).filter(c=>c!=null).length;
@@ -609,43 +675,81 @@ function landOfVictim(V){
   const d=T==='me'?myDeb:(opp&&opp.deb);
   if(!d||!DB[d.k]||!DB[d.k].steal||!d.slot)return null;
   const cards=cardsOf(V),k=d.slot-1;
-  // Карта встаёт в первый свободный слот. Если выбранный слот так и не заполнился,
-  // после заполнения поля кража достаётся ближайшей по месту карте.
-  // Если в момент кражи карта уже вошла в комбо, переносим комбо как одну сущность.
-  const full=fill(cards)>=nSide(V);
-  const candidate=(j,pos)=>{
-    const R=layX2(cards.slice(0,j+1).map((c,t)=>({c,t:'o'+t})));
-    const at=R.st.findIndex(group=>group&&group.some(m=>m.t==='o'+j));
-    const members=at>=0?R.st[at]:[{c:cards[j],t:'o'+j}];
-    const card=at>=0&&R.s[at]!=null?R.s[at]:cards[j];
-    return {j,k:pos,at:at>=0?at:pos,members,card};
-  };
-  let best=null;
-  for(let j=0;j<cards.length;j++){
-    const pre=layX2(cards.slice(0,j).map((c,t)=>({c,t:'o'+t}))).s;
-    const p=pre.indexOf(null);
-    const pos=p>=0?p:pre.length;
-    const cand=candidate(j,pos);
-    if(pos===k)return cand;
-    if(full&&(!best||Math.abs(pos-k)<=Math.abs(best.k-k)))best=cand;
+  if(!cards.length)return null;
+  // Выбираем цель по полной раскладке, а не по частичному префиксу:
+  // если слот занят результатом комбо, похищается вся группа исходных карт.
+  const R=laySideX2(V,cards.map((c,t)=>({c,t:'o'+t})));
+  const full=R.s.filter(c=>c!=null).length>=nSide(V);
+  let at=(k>=0&&k<R.s.length&&R.s[k]!=null)?k:-1;
+  let fullJ=-1;
+  if(at<0){
+    if(!full)return null;
+    // Если выбранный слот остался пустым после слияния, ждём именно тот
+    // ход, на котором поле впервые заполнилось, затем берём ближайшую карту.
+    for(let x=0;x<cards.length;x++){
+      if(laySideX2(V,cards.slice(0,x+1).map((c,t)=>({c,t:'o'+t}))).s.filter(c=>c!=null).length>=nSide(V)){fullJ=x;break}
+    }
+    if(fullJ<0)return null;
+    // При равном расстоянии сохраняется меньший слот.
+    let distance=Infinity;
+    for(let i=0;i<R.s.length;i++)if(R.s[i]!=null){
+      const d0=Math.abs(i-k);
+      if(d0<distance){distance=d0;at=i}
+    }
   }
-  return best;
+  if(at<0)return null;
+  const members=(R.st[at]||[]).map(m=>({...m}));
+  const sourceIndexes=members.map(m=>/^o\d+$/.test(m.t||'')?Number(m.t.slice(1)):-1).filter(i=>i>=0&&i<cards.length);
+  if(!sourceIndexes.length)return null;
+  // Если выбран заполненный слот с комбо — ждём последнего его участника.
+  // Если слот оказался пустым — ждём заполнения поля, а не повторно раскрываем старую карту.
+  const j=fullJ>=0?Math.max(fullJ,...sourceIndexes):Math.max(...sourceIndexes);
+  return {j,k,at,members,card:R.s[at]};
 }
 const removedOf=V=>new Set((landOfVictim(V)||{members:[]}).members.map(m=>m.t));
 // Украденное комбо передаётся одной готовой картой, а не отдельными исходными персонажами.
-const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?[{c:l.card,t:'i0',b:l.card===FUSID?friendshipExtra(l.members):0}]:[]};
+const inboxOf=T=>{const l=landOfVictim(T==='me'?'opp':'me');return l?[{c:l.card,t:'i0',b:l.card===FUSID?friendshipExtra(l.members):0,members:l.card===FUSID?l.members:null}]:[]};
 // карта уже улетела из слота жертвы (полёт завершён)
 const landDone=V=>{const l=landOfVictim(V);return !!l&&shown[V].length>l.j&&STL.flying!==(V==='me'?'opp':'me')};
-// Сколько мест должно быть занято на итоговом поле:
-// базовые места + одна входящая украденная сущность - одна ушедшая сущность.
-// Учитываем только уже найденную цель кражи; если цели ещё нет, дополнительное место не создаём.
-const boardTarget=S=>nSide(S)+inboxOf(S).length-(landOfVictim(S)?1:0);
-// Считаем фактическое количество занятых мест на итоговой раскладке.
-// В отличие от подсчёта только собственных карт, так видны слияния между
-// украденной картой и картами вора — после них игра запросит недостающую прокрутку.
-function boardFill(S){
-  return layX2(seqFinal(S)).s.filter(c=>c!=null).length;
+// В режиме 5×5 вместимость остаётся 5 (или 6 с бонусной картой); исходных карт
+// может быть больше только из-за штатного добора после освобождения мест комбо.
+// Итоговая вместимость поля: свои места + одна входящая украденная сущность
+// − одна ушедшая сущность. Даже если украли комбо из нескольких персонажей,
+// на поле оно занимало ровно один слот.
+// Входящий слот учитываем только после завершения полёта. Исходящий слот
+// резервируем, когда цель похищения уже определена, чтобы не добирать карту,
+// которая тут же будет вытеснена похищением. Это особенно важно при двух кражах.
+// Абсолютный предел поля: базовые слоты + не более одного дополнительного места.
+const capBoardSlots=n=>Math.max(0,Math.min(SIZE+1,Math.floor(Number(n)||0)));
+const boardTarget=S=>capBoardSlots(nSide(S)+(landDone(S==='me'?'opp':'me')?1:0)-(landOfVictim(S)?1:0));
+// Временная вместимость до завершения полёта: пока исходная карта ещё видна,
+// не убираем её слот заранее. Одновременно не раздуваем колонку по длине массива.
+function visualSlotCapacity(S){
+  const thief=S==='me'?'opp':'me';
+  const incoming=(landDone(thief)||STL.flying===S)?1:0;
+  const outgoing=landDone(S)?1:0;
+  // Защита от повреждённых/устаревших состояний: 5×5 никогда не рисует 7+ слотов.
+  return capBoardSlots(nSide(S)+incoming-outgoing);
 }
+// Любой кадр/раскладка приводится к конечной вместимости. Если старое состояние
+// содержит лишние индексы, они могут заполнить свободные места, но не создают новые слоты.
+function fitLayoutToCapacity(layout,capacity){
+  const cap=Math.max(0,Math.floor(Number(capacity)||0));
+  const s=Array(cap).fill(null),st=Array(cap).fill(null);
+  const src=(layout&&Array.isArray(layout.s))?layout.s:[];
+  const srcSt=(layout&&Array.isArray(layout.st))?layout.st:[];
+  const overflow=[];
+  for(let i=0;i<src.length;i++){
+    if(src[i]==null)continue;
+    let at=i<cap&&s[i]==null?i:-1;
+    if(at<0)at=s.indexOf(null);
+    if(at<0){overflow.push(i);continue}
+    s[at]=src[i];st[at]=srcSt[i]?srcSt[i].map(item=>({...item})):null;
+  }
+  return {s,st,overflow};
+}
+// Считаем фактическое количество занятых мест на итоговой раскладке после жёсткого лимита.
+function boardFill(S){return layT(S,false).s.filter(c=>c!=null).length}
 const boardDone=S=>boardFill(S)>=boardTarget(S);
 // Все карты стороны раскрыты и итоговое поле заполнено с учётом краж и слияний.
 const revealDone=S=>shown[S].length>=cardsOf(S).length&&boardDone(S);
@@ -661,8 +765,12 @@ function seqFinal(S){
   return cardsOf(S).map((c,t)=>({c,t:'o'+t})).filter(e=>!rem.has(e.t)).concat(inboxOf(S));
 }
 function layT(S,sh){
-  if(sh){if(OV&&OV.side===S)return {s:OV.s,st:OV.st||[]};return layX2(seqDisp(S))}
-  return layX2(seqFinal(S));
+  if(sh){
+    const cap=visualSlotCapacity(S);
+    if(OV&&OV.side===S)return fitLayoutToCapacity({s:OV.s,st:OV.st||[]},OV.steal?nSide(S):cap);
+    return fitLayoutToCapacity(laySideX2(S,seqDisp(S)),cap);
+  }
+  return fitLayoutToCapacity(laySideX2(S,seqFinal(S)),boardTarget(S));
 }
 const layS=S=>layT(S,true).s;
 function resetSteal(){STL={flying:null,credited:{me:false,opp:false}}}
@@ -715,24 +823,41 @@ function effOf(side,i,sh){
   const inc=((T.st&&T.st[i])||[]).some(m=>m.t[0]==='i');
   const x=chr(c);let st={a:x.a,t:x.t,d:x.d},deb=null,blocked=false,combo=false;
   if(c===FUSID){const bonus=friendshipExtra(T.st&&T.st[i]);st.a+=bonus;st.t+=bonus;st.d+=bonus}
-  if(VIL.includes(c)&&VIL.every(v=>L.includes(v))){st.a+=VB.a;st.t+=VB.t;st.d+=VB.d;combo=true}
+  if(VIL.includes(c)&&isVillainTrio(L,T.st)){st.a+=VB.a;st.t+=VB.t;st.d+=VB.d;combo=true}
   const hit=side==='me'?(opp&&opp.deb):myDeb,own=side==='me'?myDeb:(opp&&opp.deb);
   const ap=o=>{for(const k of ['a','t','d'])st[k]=Math.max(0,st[k]+((o&&o[k])||0))};
   // кража не бьёт по слоту: украденная карта просто переходит к вору
-  if(hit&&DB[hit.k]){const D=DB[hit.k];if(AFF(D)&&!D.steal&&(D.all||hit.slot===i+1)){deb=D;if(D.block)blocked=true;else ap(D.on)}}
+  if(hit&&DB[hit.k]){const D=DB[hit.k];const sourceBlocked=slotHasBlockedSource(T.st,i);if(AFF(D)&&!D.steal&&(D.all||hit.slot===i+1||sourceBlocked)){deb=D;if(D.block)blocked=true;else ap(D.on)}}
   if(own&&DB[own.k]&&DB[own.k].self)ap(DB[own.k].self);
   if(blocked)st={a:0,t:0,d:0};
   return {...st,deb,blocked,c,combo,inc};
 }
 function cardInner(c){const x=chr(c);return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${stat(x.a,x.a,'⚔')} ${stat(x.t,x.t,'🧠')} ${stat(x.d,x.d,'🛡')}</div>`}
-function cardInnerPen(c,T){
-  const x=chr(c),d=T==='me'?myDeb:(opp&&opp.deb),pen=(d&&DB[d.k]&&DB[d.k].self)||{};
-  const v=k=>Math.max(0,x[k]+(pen[k]||0));
-  return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${stat(v('a'),x.a,'⚔')} ${stat(v('t'),x.t,'🧠')} ${stat(v('d'),x.d,'🛡')}</div><div class="bd" style="color:var(--ok)">🦹 похищен</div>`;
+function cardInnerPen(c,T,slotNo,b=0){
+  const x=chr(c),hit=T==='me'?(opp&&opp.deb):myDeb,own=T==='me'?myDeb:(opp&&opp.deb);
+  let st={a:x.a,t:x.t,d:x.d},deb=null,blocked=false;
+  // У украденной «Силы дружбы» сохраняем уже накопленный бонус участников.
+  if(c===FUSID){const bonus=Math.max(0,Number(b)||0);st.a+=bonus;st.t+=bonus;st.d+=bonus}
+  const ap=o=>{for(const k of ['a','t','d'])st[k]=Math.max(0,st[k]+((o&&o[k])||0))};
+  if(hit&&DB[hit.k]){
+    const D=DB[hit.k],applies=AFF(D)&&!D.steal&&(D.all||(Number.isInteger(Number(slotNo))&&Number(slotNo)>0&&Number(hit.slot)===Number(slotNo)));
+    if(applies){deb=D;if(D.block)blocked=true;else ap(D.on)}
+  }
+  if(own&&DB[own.k]&&DB[own.k].self)ap(DB[own.k].self);
+  if(blocked)st={a:0,t:0,d:0};
+  const tags=[];
+  if(deb)tags.push(`${deb.e} ${blocked?'выбыл':deb.n}`);
+  tags.push('<span style="color:var(--ok)">🦹 похищен</span>');
+  return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${blocked?'не в бою':stat(st.a,x.a,'⚔')+' '+stat(st.t,x.t,'🧠')+' '+stat(st.d,x.d,'🛡')}</div><div class="bd">${tags.join(' · ')}</div>`;
 }
 function cardHtml(side,i){
-  const e=effOf(side,i,1),c=e.c,x=chr(c);
-  const tag=e.inc?'<div class="bd" style="color:var(--ok)">🦹 похищен</div>':e.blocked?'<div class="bd">'+e.deb.e+' выбыл</div>':(e.deb?`<div class="bd">${e.deb.e} ${e.deb.n}</div>`:(e.combo?'<div class="bd" style="color:var(--ok)">🦹 союз</div>':(c<0?'<div class="bd" style="color:#ffe066">✨ комбо</div>':'')));
+  const e=effOf(side,i,1),c=e.c,x=chr(c),tags=[];
+  // Несколько статусов могут действовать одновременно: например, карта и украдена, и заражена.
+  if(e.deb)tags.push(`${e.deb.e} ${e.blocked?'выбыл':e.deb.n}`);
+  if(e.inc)tags.push('<span style="color:var(--ok)">🦹 похищен</span>');
+  else if(e.combo)tags.push('<span style="color:var(--ok)">🦹 союз</span>');
+  else if(c<0&&!e.deb)tags.push('<span style="color:#ffe066">✨ комбо</span>');
+  const tag=tags.length?`<div class="bd">${tags.join(' · ')}</div>`:'';
   return `${face(c,50)}<b style="font-size:11px">${x.n}</b><div class="st">${e.blocked?'не в бою':stat(e.a,x.a,'⚔')+' '+stat(e.t,x.t,'🧠')+' '+stat(e.d,x.d,'🛡')}</div>${tag}`;
 }
 const rv=()=>stage==='trans'||stage==='spin'||stage==='battle';
@@ -778,19 +903,21 @@ function drawSlots(){
       // у этой стороны самой уже есть украденная карта, а сейчас у неё крадут: своя украденная стоит на месте, пока улетает чужая
       pend=inboxOf(side);
     }else if(rv()&&!revealDone(side)&&landDone(thiefOf)&&!(OV&&OV.side===side)){
-      const RA=layX2(seqDisp(side));
+      const RA=laySideX2(side,seqDisp(side));
       if(!RA.ev.some(e=>String(e.tok)[0]==='i')){
-        layout=layX2(seqDisp(side).filter(e=>e.t[0]==='o'));
+        layout=laySideX2(side,seqDisp(side).filter(e=>e.t[0]==='o'));
         arr=layout.s;
         pend=inboxOf(side);
       }
     }
     const dd=rv()?(side==='me'?(opp&&opp.deb):myDeb):null;
-    // украденная карта уже ушла из слота жертвы: под неё место не держим
-    const gone=(rv()&&landDone(side))?1:0; // украденная сущность занимает ровно один слот, даже если это комбо
-    // украденная карта уже у вора, а его собственные карты ещё вытягиваются: показываем её сразу, последней в колонке
-    const base=rv()?Math.max(arr.length,nSide(side)-gone):SIZE;
-    const n=base+pend.length+(STL.flying===side?1:0);
+    // Колонка имеет фиксированную вместимость: базовые места + реально прибывшая
+    // (или летящая) украденная карта − уже покинувшая поле сущность.
+    // Длина временного массива после комбо не имеет права создавать новые слоты.
+    const n=rv()?capBoardSlots(visualSlotCapacity(side)):SIZE;
+    const reserveIncoming=pend.length?1:(STL.flying===side?1:0);
+    const base=Math.max(0,n-reserveIncoming);
+    layout=fitLayoutToCapacity(layout,base);arr=layout.s;
     const prev=DRAWN[id],now={},sd=side==='me'?'m':'o';
     // пустые слоты нумеруем с конца: когда сверху уходит карта или добавляется новая, серые слоты двигаются вместе с карточками
     const phAt=[];
@@ -800,10 +927,14 @@ function drawSlots(){
     host.innerHTML=Array.from({length:n},(_,i)=>i).map(i=>{
       if(STL.flying===side&&i===n-1)return `<div class="slot incoming" data-i="${i+1}"></div>`;
       if(i>=base){
-        const c=pend[i-base].c;
-        const key=visualCardKey(side,[{t:pend[i-base].t||('pending'+(i-base))}],i,c);
+        const item=pend[i-base];
+        if(!item)return `<div class="slot incoming" data-i="${i+1}"></div>`;
+        const c=item.c;
+        // Предпросмотр применяет адресный эффект к тому свободному слоту, куда карта встанет сейчас.
+        const firstFree=arr.findIndex(v=>v==null),previewSlot=firstFree>=0?firstFree+1:base+1;
+        const key=visualCardKey(side,[{t:item.t||('pending'+(i-base))}],i,c);
         now[key]='';
-        return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(c)}${prev[key]!==undefined?' still':' land'}">${cardInnerPen(c,side)}</div>`;
+        return `<div data-i="${i+1}" data-key="${key}" class="slot f r${rar(c)}${prev[key]!==undefined?' still':' land'}">${cardInnerPen(c,side,previewSlot,item.b)}</div>`;
       }
       const cI=i<arr.length?arr[i]:null;
       if(cI!=null){
@@ -977,7 +1108,20 @@ function spinTo(target){
 function ids(){return [ME.id,opp.id].sort()}
 function firstId(){return ids()[hash(roomName)%2]}
 function total(){return myCards.length+(opp?(opp.cards||[]).length:0)}
-function myTurn(){const firstMe=firstId()===ME.id;return firstMe?!boardDone('me'):(boardDone('opp')&&!boardDone('me'))}
+function myTurn(){
+  const firstMe=firstId()===ME.id;
+  if(firstMe){
+    // После первого выбора второго игрока его фаза закрепляется до заполнения
+    // собственного поля. Кража и слияние могут освободить места у первого игрока,
+    // но не должны преждевременно передавать ему очередь.
+    const secondStarted=!!(opp&&Array.isArray(opp.cards)&&opp.cards.length>0);
+    return !boardDone('me')&&(!secondStarted||boardDone('opp'));
+  }
+  // На клиенте второго игрока ход продолжается до заполнения его поля,
+  // даже если у соперника после похищения появились свободные места.
+  if(myCards.length>0)return !boardDone('me');
+  return boardDone('opp')&&!boardDone('me');
+}
 let stage='init',lock=true;
 const stgOn=id=>$(id).classList.remove('off'),stgOff=id=>$(id).classList.add('off');
 function setMsg(h){const m=$('msg');if(m.dataset.h===h)return;m.dataset.h=h;m.style.opacity=0;clearTimeout(m._t);m._t=setTimeout(()=>{m.innerHTML=h;m.style.opacity=h?1:0},260)}
@@ -1061,8 +1205,12 @@ async function stealFly(V,l){
   const g=document.createElement('div');
   g.className='slot f ghost r'+rar(val);
   g.style.cssText=`position:fixed;left:${a.left}px;top:${a.top}px;width:${a.width}px;height:${a.height}px;margin:0;z-index:80;pointer-events:none;overflow:hidden`;
-  // штрафы вора («Ты: все бойцы −1 ко всему») ложатся на карту сразу, пока она летит, а не после приземления
-  g.innerHTML=cardInnerPen(val,T);
+  // Показываем уже применимые общие/адресные эффекты и перенесённый бонус комбо во время полёта.
+  const flightCap=capBoardSlots(visualSlotCapacity(T)),flightBase=Math.max(0,flightCap-1);
+  const flightLayout=fitLayoutToCapacity(laySideX2(T,seqDisp(T)),flightBase);
+  const flightFree=flightLayout.s.findIndex(v=>v==null),flightSlot=flightFree>=0?flightFree+1:flightBase+1;
+  const flightBonus=val===FUSID?friendshipExtra(l.members||[]):0;
+  g.innerHTML=cardInnerPen(val,T,flightSlot,flightBonus);
   document.body.appendChild(g);
   const dx=b.left-a.left,dy=b.top-a.top;
   $('wlab').textContent='🦹 '+chr(val).n+' переходит к '+(T==='me'?'тебе':'сопернику');
@@ -1082,7 +1230,7 @@ function tryAttach(){
     // Сохраняем флаг в снимке, чтобы после перезагрузки это событие не начислилось повторно.
     STL.credited.me=true;
     snapSave();
-    const ev=layX2(seqFinal('me')).ev.filter(e=>e.mem&&e.mem.some(m=>m.t[0]==='i'));
+    const ev=laySideX2('me',seqFinal('me')).ev.filter(e=>!e.extend&&e.mem&&e.mem.some(m=>m.t[0]==='i'));
     const stolen=inboxOf('me').filter(e=>FUSALL.includes(e.c)).length;
     const total=ev.length+stolen;
     if(total){countCombo(total);banner('✨ Комбо у тебя!','vil')}
@@ -1099,8 +1247,9 @@ function fusionPositionMap(S){
   });
   return positions;
 }
-function completeFusionFrame(snapshot, snapshotSt, event, sourceEntries, stablePositions){
-  const s=snapshot.slice(),st=snapshotSt.map(group=>group?group.map(item=>({...item})):null);
+function completeFusionFrame(snapshot, snapshotSt, event, sourceEntries, stablePositions, capacity, stableMeta){
+  const initial=fitLayoutToCapacity({s:snapshot,st:snapshotSt},capacity);
+  const s=initial.s,st=initial.st;
   const fused=new Set((event.mem||[]).map(m=>m.t));
   const present=new Set(st.flatMap(group=>(group||[]).map(m=>m.t)));
   // Карты, которые уже стояли на поле и не входят в текущее комбо,
@@ -1109,29 +1258,33 @@ function completeFusionFrame(snapshot, snapshotSt, event, sourceEntries, stableP
   for(const en of sourceEntries){
     if(fused.has(en.t)||present.has(en.t))continue;
     let at=stablePositions&&stablePositions.has(en.t)?stablePositions.get(en.t):s.indexOf(null);
-    if(at==null||at<0)at=s.length;
-    while(s.length<=at){s.push(null);st.push(null)}
-    if(s[at]!=null){at=s.indexOf(null);if(at<0)at=s.length;while(s.length<=at){s.push(null);st.push(null)}}
+    if(!Number.isInteger(at)||at<0||at>=capacity||s[at]!=null)at=s.indexOf(null);
+    // В кадре слияния никогда не расширяем массив за пределы игрового поля.
+    if(at<0||at>=capacity)continue;
     s[at]=en.c;
-    st[at]=[{c:en.c,t:en.t}];
+    const saved=stableMeta&&stableMeta.get(en.t);
+    st[at]=[saved?{...saved,members:Array.isArray(saved.members)?saved.members.map(m=>({...m})):saved.members}:{c:en.c,t:en.t,b:en.b||0,blocked:!!en.blocked,members:Array.isArray(en.members)?en.members.map(m=>({...m})):null}];
     present.add(en.t);
   }
-  return {s,st};
+  return fitLayoutToCapacity({s,st},capacity);
 }
 // Проигрывает слияния на стороне S по очереди. labelOf(e) — подпись под колесом на первом шаге.
 async function playFusions(S,list,ck,labelOf){
   const sd=S==='me'?'m':'o';
   const sourceEntries=seqDisp(S);
+  const stableLayout=laySideX2(S,sourceEntries);
+  const stableMeta=new Map(stableLayout.st.flatMap(group=>(group||[]).map(m=>[m.t,m])));
   for(const e of list){
     const fx=chr(e.id);
     const stablePositions=fusionPositionMap(S);
-    const beforeFrame=completeFusionFrame(e.before,e.stBefore,e,sourceEntries,stablePositions);
+    const capacity=visualSlotCapacity(S);
+    const beforeFrame=completeFusionFrame(e.before,e.stBefore,e,sourceEntries,stablePositions,capacity,stableMeta);
     OV={side:S,s:beforeFrame.s,st:beforeFrame.st};FZ=[];FN=-1;drawSlots();
     $('wlab').textContent=labelOf(e);
     await wait(1000);ck();
     FK=e.id;FZ=e.src.map(i=>sd+i);drawSlots();banner(fx.e+' '+fx.n+' '+fx.e,'fz k'+(-e.id));
     await wait(1900);ck();
-    const afterFrame=completeFusionFrame(e.after,e.stAfter,e,sourceEntries,stablePositions);
+    const afterFrame=completeFusionFrame(e.after,e.stAfter,e,sourceEntries,stablePositions,capacity,stableMeta);
     OV={side:S,s:afterFrame.s,st:afterFrame.st};FZ=[];FN=sd+e.at;drawSlots();
     $('wlab').textContent=fx.e+' '+fx.n+' · ⚔'+fx.a+' 🧠'+fx.t+' 🛡'+fx.d+' — освободившиеся слоты выбираются дальше';
     await wait(1100);ck();
@@ -1139,7 +1292,8 @@ async function playFusions(S,list,ck,labelOf){
   OV=null;FZ=[];FN=-1;drawSlots();
 }
 // Союз злодеев: подсветка и баннер на стороне S по итоговой раскладке post
-async function playUnion(S,post,ck){
+async function playUnion(S,post,st,ck){
+  if(!isVillainTrio(post,st)){HL=[];drawSlots();return}
   const sd=S==='me'?'m':'o';
   HL=post.map((v,i)=>VIL.includes(v)?sd+i:null).filter(Boolean);drawSlots();
   banner('🦹 Злодейский союз: каждому +4⚔ +2🧠 +3🛡','vil');
@@ -1154,8 +1308,9 @@ async function reveal(side,card){
   try{
     setMsg((side==='me'?'Тебе выпало…':'Сопернику выпало…'));
     await spinTo(card);ck();
-    const prev=layX2(seqDisp(side)).s;
-    const prevEv=new Set(layX2(seqDisp(side)).ev.map(evKey));
+    const prevLayout=laySideX2(side,seqDisp(side));
+    const prev=prevLayout.s;
+    const prevEv=new Set(prevLayout.ev.map(evKey));
     shown[side].push(card);
     if(MODE==='real')idleStrip();   // выпавшая карта сразу гаснет на рулетке
     const j=shown[side].length-1,x=CH[card];
@@ -1166,43 +1321,40 @@ async function reveal(side,card){
       const T=side==='me'?'opp':'me';
       // полёт начинается сейчас: до него карты у вора ещё нет (иначе она появится у вора раньше полёта)
       STL.flying=T;
-      const preT=layX2(seqDisp(T)).s;
+      const preTLayout=laySideX2(T,seqDisp(T));
+      const preT=preTLayout.s;
       // Показываем фактическую сущность, которая улетает: если текущая карта завершила комбо,
       // на поле уже стоит готовое комбо, и именно оно переносится целиком.
-      const preLayout=layX2(shown[side].slice(0,j+1).map((c,t)=>({c,t:'o'+t})));
+      const preLayout=laySideX2(side,shown[side].slice(0,j+1).map((c,t)=>({c,t:'o'+t})));
       OV={side,s:preLayout.s,st:preLayout.st,steal:1};
       drawSlots();
       await stealFly(side,land);ck();
       OV=null;
       // у вора карта видна сразу после полёта; если он уже вскрыл всё, её слияния и союз показываем сейчас
-      const RT=layX2(seqDisp(T)),postT=RT.s;
+      const RT=laySideX2(T,seqDisp(T)),postT=RT.s;
       const fuseT=RT.ev.filter(e=>String(e.tok)[0]==='i');
       if(fuseT.length)await playFusions(T,fuseT,ck,()=>'🦹 Украденная карта складывается с картами вора');
       else drawSlots();
-      const vilT=VIL.every(v=>postT.includes(v))&&!VIL.every(v=>preT.includes(v));
+      const vilT=isVillainTrio(postT,RT.st)&&!isVillainTrio(preT,preTLayout.st);
       if(vilT){
         if(T==='me')countCombo(1);
-        await playUnion(T,postT,ck);
+        await playUnion(T,postT,RT.st,ck);
       }
       tryAttach();
       drawSlots();
       animating=false;update();return;
     }
-    const R=layX2(seqDisp(side)),post=R.s;
-    const evs=R.ev.filter(e=>e.tok==='o'+j);
+    const R=laySideX2(side,seqDisp(side)),post=R.s;
+    const evs=R.ev.filter(e=>e.tok==='o'+j&&!e.extend);
     // слияния, которые становятся видны сейчас: своя карта j и, когда вор вскрыл всё, слияния с украденной картой
     const fuse=R.ev.filter(e=>!prevEv.has(evKey(e))&&(e.tok==='o'+j||String(e.tok)[0]==='i'));
-    const vilNow=VIL.every(v=>post.includes(v))&&!VIL.every(v=>prev.includes(v));
+    const vilNow=isVillainTrio(post,R.st)&&!isVillainTrio(prev,prevLayout.st);
     if(side==='me'){if(j>=ccDone){if(evs.length||vilNow)countCombo(evs.length+(vilNow?1:0));ccDone=j+1;snapSave()}}
     if(fuse.length){
       await playFusions(side,fuse,ck,e=>String(e.tok)[0]==='i'?'🦹 Украденная карта складывается с картами вора':x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d);
     }else drawSlots();
     if(vilNow){
-      HL=post.map((v,i)=>VIL.includes(v)?sd+i:null).filter(Boolean);drawSlots();
-      banner('🦹 Злодейский союз: каждому +4⚔ +2🧠 +3🛡','vil');
-      $('wlab').textContent='🦹 Злодейский союз! Каждому злодею +4 ⚔ +2 🧠 +3 🛡';
-      await wait(1800);ck();
-      HL=[];drawSlots();
+      await playUnion(side,post,R.st,ck);
     }else if(!fuse.length)$('wlab').textContent=x.e+' '+x.n+' · ⚔'+x.a+' 🧠'+x.t+' 🛡'+x.d;
     tryAttach();
     animating=false;update();
@@ -1916,8 +2068,10 @@ const eMsg=e=>({'auth/email-already-in-use':'Такой ник уже занят
 
 // История релизов задаётся вместе с каждой новой версией игры.
 // В следующем выпуске сюда добавляется новая запись, а RELEASE_VERSION увеличивается.
-const RELEASE_VERSION=15;
+const RELEASE_VERSION=17;
 const RELEASE_NOTES=[
+  {v:17,d:'Объединённый выпуск исправлений боя: заблокированные карты не участвуют в комбо; защищены рецепты от подмены и повторов участников; исправлены лишние пустые слоты и предел вместимости полей 3×3, 4×4 и 5×5; статусы похищения больше не скрывают другие эффекты; после похищения комбо очередь корректно возвращается первому игроку только после завершения хода второго; фон соперника зеркалится только на стороне просмотра, собственный фон остаётся обычным.'},
+  {v:16,d:'Исправлены комбо: пустые слоты сохраняются во время слияния; «Сила дружбы» считает только разных друзей; «Злодейский союз» требует Кризалис, Тирека и Кози Глоу.'},
   {v:15,d:'Запущен новый сезон батл-пасса «Тень бездны»: отдельный прогресс с нуля, 9 уникальных фонов, фиолетовые сундуки и атомарная выдача наград. Старые короны и крылья сохранены.'},
   {v:14,d:'В комбо «Сила дружбы» за каждого участника сверх трёх карта получает +5 ко всем характеристикам. Бонус сохраняется и при краже этой карты.'},
   {v:13,d:'Кнопка «Обновления» перенесена под книгу комбо и оформлена круглой. Окно журнала стало компактнее и закрывается только крестиком.'},
