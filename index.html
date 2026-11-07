@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Пони-Арена — офлайн тест с ботом</title>
+<title>Пони-Арена</title>
 <style>
 :root{--bg:#0e1116;--card:#171c24;--tx:#e8ecf2;--mut:#8793a5;--ac:#f2a900;--ac2:#e8590c;--ln:#2a323f;--ok:#3ecf8e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1116;--card:#171c24;--tx:#e8ecf2;--mut:#8793a5;--ln:#2a323f}}
@@ -296,22 +296,6 @@ textarea.in{resize:none;font-family:inherit}
 #cMe .slot.sixth-slot-enter{animation:sixthInMe .68s cubic-bezier(.2,.75,.25,1) both!important}
 #cOpp .slot.sixth-slot-enter{animation:sixthInOpp .68s cubic-bezier(.2,.75,.25,1) both!important}
 @media(prefers-reduced-motion:reduce){.slot.f.vil,#cMe .slot.sixth-slot-enter,#cOpp .slot.sixth-slot-enter{animation:none!important}}
-
-/* Офлайн-песочница — сохраняет оригинальную игровую доску и визуальный стиль */
-.off-head{font-size:17px;font-weight:900;letter-spacing:1px;text-align:center;color:var(--ac);margin:4px 0 8px}
-.off-note,.off-small{font-size:12px;color:var(--mut);line-height:1.45;margin:4px 0 10px}
-.off-panel{margin-top:10px;padding:11px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);text-align:left}
-.off-panel>b{display:block;margin-bottom:4px}
-.off-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:7px}
-.off-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut);min-width:0}
-.off-grid select,.off-draws select{width:100%;min-width:0;padding:8px 6px;border:1px solid var(--ln);border-radius:6px;background:var(--card);color:var(--tx);font:inherit;font-size:12px}
-.off-draws{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-top:6px}
-.off-draw-row{display:flex;align-items:center;gap:5px;min-width:0}
-.off-draw-row small{width:18px;flex:none;color:var(--mut);font-size:10px}
-.off-actions{margin-top:12px}
-.off-actions .btn{margin-top:7px}
-body.offline-build #goCreate,body.offline-build #goJoin{display:none!important}
-@media(max-width:360px){.off-grid,.off-draws{grid-template-columns:1fr}.off-panel{padding:9px}}
 </style>
 <style>
 /* Новый сезон батл-пасса: тёмный фиолетовый стиль */
@@ -435,7 +419,7 @@ body.offline-build #goCreate,body.offline-build #goJoin{display:none!important}
     <p class="sub">Эпплджек, Эпл Блум и Бабуля Смит должны выпасть все трое, в любом порядке. Они объединяются в «Семью Эплов», а их слоты освобождаются. Эпплджек и Эпл Блум входят и в другие комбо: объединение получит тот набор, который собрался раньше.</p>
   </div>
 </div></div>
-<h1>⚔️ Пони-Арена</h1><div class="sub">ОФЛАЙН-ТЕСТ · дуэль 1 на 1 с ботом · игровая версия v23</div>
+<h1>⚔️ Пони-Арена</h1><div class="sub">Дуэль 1 на 1 · три карты · бой в воде</div>
 
 <div id="lobby" class="panel">
   <div style="font-size:54px">⚔️</div>
@@ -505,50 +489,9 @@ body.offline-build #goCreate,body.offline-build #goJoin{display:none!important}
   </div>
   <div id="menu" class="hide">
     <div style="margin:6px 0 4px;font-weight:700">Выбери режим</div>
-    <button class="btn" id="goOffline">⚔ Играть с ботом · ОФЛАЙН</button>
-    <button class="btn" id="goCreate" hidden>Создать сервер</button>
-    <button class="btn" id="goJoin" hidden>Присоединиться</button>
+    <button class="btn" id="goCreate">Создать сервер</button>
+    <button class="btn" id="goJoin">Присоединиться</button>
     <button class="btn sec" id="back1">Назад</button>
-  </div>
-  <div id="offlineSetup" class="hide">
-    <div class="off-head">⚔ ОФЛАЙН-ТРЕНИРОВКА</div>
-    <div class="off-note">Полная игровая логика и оформление основной «Пони-Арены». Регистрация и интернет не используются. Все персонажи и предметы доступны в тестовом режиме.</div>
-    <div class="off-panel">
-      <div class="off-grid">
-        <label>Размер боя<select id="offSize"><option value="3">3 на 3</option><option value="4">4 на 4</option><option value="5" selected>5 на 5</option></select></label>
-        <label>Режим<select id="offMode"><option value="arcade">Аркадный</option><option value="real">Реалистичный</option></select></label>
-        <label>Кто ходит первым<select id="offFirst"><option value="me">Ты</option><option value="bot">Бот</option></select></label>
-        <label>Сложность бота<select id="offBotStyle"><option value="random">Случайный</option><option value="smart">Сильные карты</option><option value="weak">Слабые карты</option></select></label>
-        <label>Задержка бота<select id="offDelay"><option value="250">Быстро</option><option value="700" selected>Обычно</option><option value="1500">Медленно</option></select></label>
-      </div>
-    </div>
-    <div class="off-panel">
-      <b>🎯 Что выпадет тебе</b>
-      <div class="off-small">Выбери карты по порядку. «🎲 Случайно» использует обычную рулетку. Полей 12 — хватит и на добор после нескольких комбо.</div>
-      <div id="offMyDraws" class="off-draws"></div>
-    </div>
-    <div class="off-panel">
-      <b>🤖 Что выпадет боту</b>
-      <div class="off-small">Можно задать точную последовательность бота. Пустые поля означают случайный выбор с учётом сложности.</div>
-      <div id="offBotDraws" class="off-draws"></div>
-    </div>
-    <div class="off-panel">
-      <b>🧪 Эффекты и цели</b>
-      <div class="off-small">Эффекты выбираются заранее для каждой стороны. Для адресного эффекта можно указать слот-цель. «Бонус карта» и «Похищение» используют настоящие правила игры.</div>
-      <div class="off-grid">
-        <label>Эффект у тебя<select id="offMyDeb"></select></label>
-        <label>Слот цели у тебя<select id="offMySlot"></select></label>
-        <label>Эффект у бота<select id="offBotDeb"></select></label>
-        <label>Слот цели у бота<select id="offBotSlot"></select></label>
-        <label>Твой фон<select id="offMyBg"></select></label>
-        <label>Фон бота<select id="offBotBg"></select></label>
-      </div>
-    </div>
-    <div class="off-actions">
-      <button class="btn" id="offStart">Начать бой</button>
-      <button class="btn sec" id="offRandom">Случайный сценарий</button>
-      <button class="btn sec" id="offBack">Назад</button>
-    </div>
   </div>
   <div id="create" class="hide">
     <div style="margin:6px 0 4px;font-weight:700">Новый сервер</div>
@@ -598,6 +541,9 @@ body.offline-build #goCreate,body.offline-build #goJoin{display:none!important}
 </div>
 
 <div id="rlOv" class="hide"><div class="rl-card"><div class="rl-title" id="rlTitle"></div><div class="rl-wheel"><canvas id="rlCanvas"></canvas><div class="rl-ptr"></div></div><div class="rl-res" id="rlRes"></div><button class="btn hide" id="rlOk">Забрать</button></div></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
 // ===== Персонажи (заглушки): id — имя файла фото img/<id>.jpg, a — атака, t — тактика, d — защита =====
 const CH=[
@@ -1095,8 +1041,6 @@ function markTargets(){
 const rnd=()=>Math.floor(Math.random()*CH.length);
 // ===== Режимы: arcade — карты выпадают случайно; real — взятая карта больше не выпадает сопернику =====
 let MODE='arcade';
-// Изолированный тестовый режим: не подключается к сети и использует локального бота.
-let OFFLINE_TEST=false,OFFLINE_CONFIG=null,OFFLINE_BOT_TIMER=null,OFFLINE_PROFILES=null;
 // Размер дуэли: 3, 4 или 5 карт на игрока (у обоих игроков одинаковый)
 let SIZE=3;
 const normSz=v=>{v=+v;return v===4||v===5?v:3};
@@ -1107,25 +1051,7 @@ const MODES={
   real:{e:'🎯',n:'Реалистичный',d:'Забранная карта становится серой на рулетке и больше не выпадает сопернику: каждый герой достаётся только одному игроку. Комбо работают.'}
 };
 const modeLbl=m=>{const x=MODES[m==='real'?'real':'arcade'];return x.e+' '+x.n};
-function offlinePickCard(side,index){
-  const list=side==='me'?(OFFLINE_CONFIG&&OFFLINE_CONFIG.myDraws):(OFFLINE_CONFIG&&OFFLINE_CONFIG.botDraws);
-  const fixed=list&&list[index];
-  let selected=fixed?ix(fixed):-1;
-  const taken=new Set([...myCards,...((opp&&opp.cards)||[])]);
-  if(MODE==='real'&&selected>=0&&taken.has(selected))selected=-1;
-  if(selected>=0&&selected<CH.length)return selected;
-  let pool=CH.map((_,i)=>i);
-  if(MODE==='real')pool=pool.filter(i=>!taken.has(i));
-  if(!pool.length)pool=CH.map((_,i)=>i);
-  if(side==='opp'&&OFFLINE_CONFIG&&OFFLINE_CONFIG.botStyle!=='random'){
-    const score=i=>CH[i].a+CH[i].t+CH[i].d;
-    pool.sort((a,b)=>OFFLINE_CONFIG.botStyle==='smart'?score(b)-score(a):score(a)-score(b));
-    const band=Math.max(1,Math.ceil(pool.length*.35));pool=pool.slice(0,band);
-  }
-  return pool[Math.floor(Math.random()*pool.length)];
-}
 function pickCard(){
-  if(OFFLINE_TEST)return offlinePickCard('me',myCards.length);
   if(MODE!=='real')return rnd();
   const taken=new Set([...myCards,...((opp&&opp.cards)||[])]);
   const free=[];for(let i=0;i<CH.length;i++)if(!taken.has(i))free.push(i);
@@ -1228,7 +1154,7 @@ function spinTo(target){
 
 // ===== Логика порядка ходов =====
 function ids(){return [ME.id,opp.id].sort()}
-function firstId(){if(OFFLINE_TEST&&OFFLINE_CONFIG)return OFFLINE_CONFIG.first==='bot'?opp.id:ME.id;return ids()[hash(roomName)%2]}
+function firstId(){return ids()[hash(roomName)%2]}
 function total(){return myCards.length+(opp?(opp.cards||[]).length:0)}
 function myTurn(){
   const firstMe=firstId()===ME.id;
@@ -1307,19 +1233,6 @@ function update(){
   if(allShown&&!battleStarted){battle();return}
   if(battleStarted)return;
   const mine=myTurn()&&shown.me.length===myCards.length&&shown.opp.length===oc.length;
-  // Бот делает ровно один ход, только когда все текущие анимации раскрытия завершены.
-  // Игра продолжает использовать штатные reveal/lay/steal/combo/battle функции.
-  if(OFFLINE_TEST&&!mine&&!animating&&!battleStarted&&!boardDone('opp')&&!OFFLINE_BOT_TIMER){
-    $('pOpp').classList.add('turn');$('pMe').classList.remove('turn');
-    setMsg('Бот выбирает карту<span class="dots"></span>');
-    OFFLINE_BOT_TIMER=setTimeout(()=>{
-      OFFLINE_BOT_TIMER=null;
-      if(!OFFLINE_TEST||finished||gone||stage!=='spin'||animating||myTurn()||boardDone('opp'))return;
-      opp.cards=[...(opp.cards||[]),offlinePickCard('opp',(opp.cards||[]).length)];
-      update();
-    },Math.max(80,Number(OFFLINE_CONFIG.delay)||700));
-    return;
-  }
   $('pMe').classList.toggle('turn',mine&&!animating);$('pOpp').classList.toggle('turn',!mine&&!animating);
   $('spin').classList.toggle('hide',!(mine&&!boardDone('me')));
   $('spin').disabled=animating;
@@ -1664,7 +1577,7 @@ const err=t=>{$('err').textContent=t||''};
 const hs=p=>{let h=5381;for(const c of p)h=((h<<5)+h+c.charCodeAt(0))>>>0;return String(h)};
 let scr='';
 let showTk=0;
-const SCR=['auth','home','profile','friends','menu','offlineSetup','create','browse','waitBox','bpass'];
+const SCR=['auth','home','profile','friends','menu','create','browse','waitBox','bpass'];
 function pop(el){if(el.classList.contains('hide')){el.classList.remove('hide');el.classList.remove('scrIn');void el.offsetWidth;el.classList.add('scrIn')}}
 function show(id){
   err('');
@@ -1794,7 +1707,6 @@ let ccDone=0;
 const SNAP_PREFIX='mlpsnap:';
 function snapKey(){return SNAP_PREFIX+TAB}
 function snapSave(){
-  if(OFFLINE_TEST)return;
   if(!matchLive||finished||!sid){snapClear();return}
   try{
     localStorage.setItem(snapKey(),JSON.stringify({
@@ -1807,7 +1719,7 @@ function snapSave(){
   }catch(e){}
 }
 function snapClear(){try{localStorage.removeItem(snapKey())}catch(e){}}
-G={presence:patch=>{Object.assign(myState,patch);if(!OFFLINE_TEST)pub('g/'+sid+'/p/'+ME.id,myState,true);snapSave()}};
+G={presence:patch=>{Object.assign(myState,patch);pub('g/'+sid+'/p/'+ME.id,myState,true);snapSave()}};
 const myWill=()=>({topic:P+'g/'+sid+'/p/'+ME.id,payload:'',retain:true});
 // Пустой статус (база снимает его при обрыве) не даёт победу сразу: соперник мог просто потерять связь. Ждём OPP_GRACE на возврат.
 const OPP_GRACE=15000;
@@ -2430,11 +2342,9 @@ function setPl(id,u,name,uid){
   el.append(a,label);
 }
 function renderBar(){
-  const mine=OFFLINE_TEST&&OFFLINE_PROFILES?OFFLINE_PROFILES.me:me;
-  const theirs=OFFLINE_TEST&&OFFLINE_PROFILES?OFFLINE_PROFILES.bot:(opp&&opp.uid?UC[opp.uid]:null);
-  setPl('pMe',mine,ME.name,me?me.uid:'');
+  setPl('pMe',me,ME.name,me?me.uid:'');
   const ou=opp&&opp.uid;
-  setPl('pOpp',OFFLINE_TEST?theirs:(ou?UC[ou]:null),(opp&&opp.name)||'Соперник',OFFLINE_TEST?'':(ou||''));
+  setPl('pOpp',ou?UC[ou]:null,(opp&&opp.name)||'Соперник',ou||'');
   if(ou&&me&&!(ou in UC)){UC[ou]=null;getUser(ou).then(()=>renderBar())}
 }
 let upUid=null;
@@ -2992,79 +2902,20 @@ $('bpMini').onclick=CM.showBp;
 $('bpMini').onkeydown=e=>{if(e.key==='Enter')CM.showBp()};
 $('bpBack').onclick=()=>show('home');
 
-// Офлайн-сборка: Firebase SDK отсутствует, авторизация и сетевой транспорт не запускаются.
-document.body.classList.add('offline-build');
-renderHome();show('home');hideLoader();
+if(fInit()){
+  setTab(false);
+  // LOCAL persistence сохраняет вход между перезапусками браузера; TAB lock blocks parallel devices.
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
+    auth.onAuthStateChanged(u=>{
+      if(regBusy)return;
+      if(u&&u.isAnonymous){meOff.forEach(f=>f());meOff=[];me=null;renderHome();if(scr==='')show('home');hideLoader();return}
+      if(u)onUser(u).catch(e=>{console.error('session claim:',e);auth.signOut()});
+      else{releaseAccountSession();meOff.forEach(f=>f());meOff=[];me=null;renderHome();show('auth');hideLoader()}
+    });
+  }).catch(e=>{console.error('auth persistence:',e);show('auth');hideLoader()});
+}else{renderHome();show('home');hideLoader()}
 function hideLoader(){const l=$('loader');if(!l||l.classList.contains('out'))return;l.classList.add('out');setTimeout(()=>l.remove(),650)}
 setTimeout(()=>{const m=$('lmsg');if(m)m.textContent='Медленное соединение… попробуй включить VPN или сменить сеть'},7000);
 setTimeout(()=>{if(scr==='')show('home');hideLoader()},16000);
-
-/* ================= ОФЛАЙН-ТЕСТ С БОТОМ ================= */
-const OFF_NO_DEB=-1;
-function offDeb(k,slot){const n=Number(k);return n<0?{k:OFF_NO_DEB,slot:null}:{k:n,slot:(DB[n]&&DB[n].all)?null:Number(slot)||1}}
-function offOptionList(){return '<option value="">🎲 Случайно</option>'+CH.map((c,i)=>`<option value="${c.id}">${c.e} ${c.n}</option>`).join('')}
-function offFillDraws(){
-  for(const [host,side] of [['offMyDraws','me'],['offBotDraws','bot']]){
-    $(host).innerHTML=Array.from({length:12},(_,i)=>`<div class="off-draw-row"><small>${i+1}.</small><select data-off-side="${side}" data-off-index="${i}" aria-label="${side==='me'?'Твоя':'Бота'} карта ${i+1}">${offOptionList()}</select></div>`).join('');
-  }
-}
-function offFillSelects(){
-  const debs='<option value="-1">Нет эффекта</option>'+DB.map((d,i)=>`<option value="${i}">${d.e} ${d.n}</option>`).join('');
-  ['offMyDeb','offBotDeb'].forEach(id=>$(id).innerHTML=debs);
-  const slots=Array.from({length:6},(_,i)=>`<option value="${i+1}">Слот ${i+1}</option>`).join('');
-  ['offMySlot','offBotSlot'].forEach(id=>$(id).innerHTML=slots);
-  const bgs=[{id:'',name:'Без фона'},...(CM.BG_ITEMS||[])];
-  ['offMyBg','offBotBg'].forEach(id=>$(id).innerHTML=bgs.map(x=>`<option value="${x.id}">${x.name}</option>`).join(''));
-  if(CM.BG_ITEMS&&CM.BG_ITEMS.length>1){$('offMyBg').value=CM.BG_ITEMS[0].id;$('offBotBg').value=CM.BG_ITEMS[1].id}
-}
-function offVirtualProfile(nick,bg){
-  const items=CM.ITEMS||[],bgs=CM.BG_ITEMS||[];
-  const crown=items.find(x=>x.kind==='crown'),wing=items.find(x=>x.kind==='wing');
-  return {nick,cos:{owned:items.map(x=>x.id),eq:{crown:crown&&crown.id||null,wing:wing&&wing.id||null}},battlePasses:{[CM.BP_SEASON]:{wins:CM.MAX,owned:bgs.map(x=>x.id),opened:CM.MS.slice(),eq:{background:bg||null}}}};
-}
-function offReadConfig(){
-  const myDraws=Array(12).fill(''),botDraws=Array(12).fill('');
-  document.querySelectorAll('[data-off-side]').forEach(el=>{(el.dataset.offSide==='me'?myDraws:botDraws)[Number(el.dataset.offIndex)]=el.value||''});
-  return {
-    size:Number($('offSize').value)||5,mode:$('offMode').value==='real'?'real':'arcade',
-    first:$('offFirst').value==='bot'?'bot':'me',botStyle:$('offBotStyle').value,
-    delay:Number($('offDelay').value)||700,myDraws,botDraws,
-    myDeb:offDeb($('offMyDeb').value,$('offMySlot').value),
-    botDeb:offDeb($('offBotDeb').value,$('offBotSlot').value),
-    myBg:$('offMyBg').value,botBg:$('offBotBg').value
-  };
-}
-async function startOfflineMatch(config){
-  if(OFFLINE_BOT_TIMER){clearTimeout(OFFLINE_BOT_TIMER);OFFLINE_BOT_TIMER=null}
-  OFFLINE_TEST=true;OFFLINE_CONFIG=config||OFFLINE_CONFIG||offReadConfig();
-  if(matchLive||opp||!$('game').classList.contains('hide'))leaveGame();
-  OFFLINE_TEST=true;
-  clearTimeout(resumeTimer);resumeTimer=null;resumeSnap=null;
-  cancelSpin();resetVisualState();epoch++;
-  ME.id='offline-player';ME.name=($('nameIn').value.trim()||'Игрок').slice(0,16);
-  myState={id:ME.id,name:ME.name,cards:[]};myCards=[];shown={me:[],opp:[]};
-  opp={id:'offline-bot',name:'Тестовый бот',uid:'',cards:[],deb:OFFLINE_CONFIG.botDeb};oppId=opp.id;
-  sid='offline-local';baseRoom=sid;roomName='offline-local';round=0;oppLeft=false;
-  MODE=OFFLINE_CONFIG.mode;setSize(OFFLINE_CONFIG.size);
-  animating=false;coinDone=false;battleStarted=false;gone=false;finished=false;meWin=false;
-  myDeb=OFFLINE_CONFIG.myDeb;debSel=-1;slotSel=0;coinStarted=false;debDone=false;TS=null;
-  OV=null;FZ=[];FN=-1;HL=[];FK=-1;STL={flying:null,credited:{me:false,opp:false}};
-  ccDone=0;stage='init';lock=true;matchLive=false;delete $('game').dataset.s;
-  OFFLINE_PROFILES={me:offVirtualProfile(ME.name,OFFLINE_CONFIG.myBg),bot:offVirtualProfile('Тестовый бот',OFFLINE_CONFIG.botBg)};
-  myState={id:ME.id,name:ME.name,cards:[]};
-  renderHome();
-  $('mail').classList.add('off');$('book').classList.add('off');$('releaseBtn').classList.add('off');
-  show('home');
-  await startGame();
-}
-$('goOffline').onclick=()=>{show('offlineSetup')};
-$('offBack').onclick=()=>show('menu');
-$('offStart').onclick=()=>startOfflineMatch(offReadConfig());
-$('offRandom').onclick=()=>{document.querySelectorAll('[data-off-side]').forEach(el=>el.value='');$('offMyDeb').value='-1';$('offBotDeb').value='-1';$('offFirst').value='me';startOfflineMatch(offReadConfig())};
-$('again').onclick=()=>{if(OFFLINE_TEST)startOfflineMatch(OFFLINE_CONFIG)};
-$('toMenu').onclick=()=>{if(OFFLINE_BOT_TIMER){clearTimeout(OFFLINE_BOT_TIMER);OFFLINE_BOT_TIMER=null}if(OFFLINE_TEST){leaveGame();show('offlineSetup')}else leaveGame()};
-$('quit').onclick=()=>{if(OFFLINE_TEST){if(OFFLINE_BOT_TIMER){clearTimeout(OFFLINE_BOT_TIMER);OFFLINE_BOT_TIMER=null}leaveGame();show('offlineSetup')}else quitMatch()};
-offFillDraws();offFillSelects();
-
 </script>
 </body></html>
