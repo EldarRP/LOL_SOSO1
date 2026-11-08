@@ -806,9 +806,29 @@ function errorMessage(error, fallback) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startAuthSession = startAuthSession;
-/** Installs the Firebase auth observer after persistence has been configured. */
-async function startAuthSession(auth, persistence, handlers) {
-    await auth.setPersistence(persistence);
+/**
+ * Installs the auth observer even when browser storage blocks the requested persistence.
+ * This matters for standalone HTML files, private browsing and restrictive storage policies:
+ * LOCAL may fail while SESSION or in-memory persistence still permits authentication.
+ */
+async function startAuthSession(auth, persistence, handlers, fallbackPersistence = []) {
+    let lastPersistenceError = null;
+    let selectedPersistence = null;
+    const candidates = [persistence, ...fallbackPersistence];
+    for (const candidate of candidates) {
+        try {
+            await auth.setPersistence(candidate);
+            selectedPersistence = candidate;
+            break;
+        }
+        catch (error) {
+            lastPersistenceError = error;
+        }
+    }
+    if (lastPersistenceError) {
+        handlers.onPersistenceFallback?.(lastPersistenceError, selectedPersistence);
+    }
+    // Do not let a persistence error prevent onAuthStateChanged from observing a successful sign-in.
     return auth.onAuthStateChanged((user) => {
         if (handlers.shouldIgnore?.())
             return;
@@ -3771,8 +3791,11 @@ function authReady() {
 }
 const myUid = () => (auth && auth.currentUser) ? auth.currentUser.uid : '';
 const toPath = (t) => NET_ROOT + '/' + t.slice(P.length);
-const netErr = (e) => { const message = e && typeof e === 'object' && 'message' in e ? String(e.message) : String(e || ''); if (/permission/i.test(message))
-    err('Нет доступа к серверу: в Firebase обнови правила (firebase_rules.json)'); };
+const errorDetails = (e) => { const value = e && typeof e === 'object' ? e : {}; return { code: typeof value.code === 'string' ? value.code : '', message: typeof value.message === 'string' ? value.message : String(e ?? '') }; };
+const accountSessionError = (e) => { const detail = errorDetails(e); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
+    return 'Firebase выполнил вход, но Realtime Database запретила доступ к профилю или сессии. Проверь и опубликуй firebase_rules.json в том же проекте Firebase.'; return 'Вход выполнен, но профиль не удалось подключить: ' + (0, account_identity_js_1.authErrorMessage)(e); };
+const netErr = (e) => { const detail = errorDetails(e); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
+    err('Нет доступа к данным аккаунта/сервера: проверь опубликованные правила Firebase (firebase_rules.json)'); };
 const NetClient = ApplicationNetClient;
 const connectionFactory = (0, connection_factory_js_1.createConnectionFactory)({
     initialize: fInit,
@@ -4346,7 +4369,8 @@ const accountSessionController = (0, account_session_controller_js_1.createAccou
         alert('Этот аккаунт уже используется в другой вкладке или на другом устройстве. Одновременно играть можно только с одного устройства.');
         await requireAuth().signOut();
     },
-    reportError: error => console.warn('account stream:', error),
+    reportError: error => { console.warn('account stream:', error); const detail = errorDetails(error); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
+        err(accountSessionError(error)); },
 });
 async function onUser(u) { return accountSessionController.attach(u); }
 function card(u, t1, f1, t2, f2, online, openUid) {
@@ -4622,14 +4646,15 @@ if (fInit()) {
     // Local persistence and auth-state transitions are coordinated by the account session module.
     (0, auth_session_js_1.startAuthSession)(activeAuth, firebase.auth.Auth.Persistence.LOCAL, {
         shouldIgnore: () => regBusy,
+        onPersistenceFallback: (error, selected) => console.warn('Firebase persistence fallback:', { error, selected }),
         onAnonymous: () => { accountSessionController.dispose(); me = null; renderHome(); if (scr === '')
             show('home'); hideLoader(); },
         onAuthenticated: user => { if (typeof user.uid !== 'string' || typeof user.delete !== 'function') {
-            err('Некорректная сессия Firebase');
+            err('Firebase вернул некорректную сессию аккаунта');
             return;
-        } onUser(user).catch(e => { console.error('session claim:', e); void activeAuth.signOut(); }); },
+        } void onUser(user).catch(e => { console.error('session attach:', e); err(accountSessionError(e)); void activeAuth.signOut().catch(signOutError => console.error('sign out after session error:', signOutError)); }); },
         onSignedOut: () => { releaseAccountSession(); accountSessionController.dispose(); me = null; renderHome(); show('auth'); hideLoader(); },
-    }).catch(e => { console.error('auth persistence:', e); show('auth'); hideLoader(); });
+    }, [firebase.auth.Auth.Persistence.SESSION, firebase.auth.Auth.Persistence.NONE]).catch(e => { console.error('auth session initialization:', e); err('Не удалось запустить Firebase Authentication: ' + (0, account_identity_js_1.authErrorMessage)(e)); show('auth'); hideLoader(); });
 }
 else {
     renderHome();
@@ -4931,8 +4956,9 @@ function gameModeLabel(value) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RELEASE_NOTES = exports.RELEASE_VERSION = void 0;
-exports.RELEASE_VERSION = 29;
+exports.RELEASE_VERSION = 30;
 exports.RELEASE_NOTES = [
+    { version: 30, description: 'Исправлена инициализация входа в браузерах с ограниченным хранилищем: если постоянная Firebase-сессия недоступна, приложение пробует сессионное хранение и память и всё равно подключает обработчик состояния авторизации. Улучшены сообщения об ошибках привязки профиля и отказах Realtime Database.' },
     { version: 29, description: 'Миграция приложения переведена на строгую TypeScript-сборку: удалены @ts-nocheck и переходный legacy entrypoint, composition root переименован в application-bootstrap. Контракты DOM, Firebase, матча, профиля и эффектов проверяются в strict-режиме. Добавлен финальный регрессионный прогон 385 тестов.' },
     { version: 28, description: 'Расчёт поля, очередность раскрытия, входящие украденные карты, вместимость и неизменяемые цели похищения вынесены в отдельный board-state controller. Обе кражи фиксируются одним снимком и выполняются в одинаковом порядке на обоих клиентах. Приглашение друга в дуэль, приём подключения и тайм-аут вынесены в отдельный контроллер. Добавлены тесты цели карты № 2, момента прибытия украденной карты, переноса комбо целиком и очередности встречных краж.' },
     { version: 27, description: 'Рулетка сезонных наград вынесена в отдельные renderer и controller с сохранением углов секторов, четырёх/пяти оборотов и плавного замедления. Координаты и дорожка девяти сундуков батл-пасса вынесены в отдельную модель. Добавлены проверки попадания в выбранную награду, отмены анимации и неизменности расположения сундуков.' },
@@ -5943,6 +5969,12 @@ function authErrorMessage(error) {
         'auth/network-request-failed': 'Нет интернета',
         'auth/operation-not-allowed': 'В Firebase не включён вход по Email/паролю',
         'auth/too-many-requests': 'Слишком много попыток, подожди',
+        'auth/invalid-email': 'Некорректный адрес аккаунта. Напиши ник без пробелов и спецсимволов',
+        'auth/invalid-login-credentials': 'Неверный ник или пароль',
+        'auth/user-disabled': 'Этот аккаунт отключён в Firebase Authentication',
+        'auth/unauthorized-domain': 'Домен сайта не разрешён в Firebase Authentication → Settings → Authorized domains',
+        'auth/app-not-authorized': 'Веб-приложение не авторизовано для этого Firebase-проекта',
+        'auth/unsupported-persistence-type': 'Браузер запретил сохранение сессии; попробуй обычное окно браузера',
         'auth/requires-recent-login': 'Войди заново и повтори действие',
     };
     return (value.code && messages[value.code]) || `Ошибка: ${value.message || String(error)}`;
