@@ -555,14 +555,24 @@ const __poniModules = {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createAccountSessionController = createAccountSessionController;
-/** Owns account lease acquisition and lifecycle of the current user's Firebase streams. */
+/**
+ * Owns current-user streams and the optional one-tab account lease.
+ * Profile subscription starts immediately; the lease must never hold sign-in hostage.
+ */
 function createAccountSessionController(deps) {
     let generation = 0;
     let currentUid = '';
     let unsubscribe = null;
+    let profileTimer = null;
+    const clearProfileTimer = () => {
+        if (profileTimer !== null)
+            clearTimeout(profileTimer);
+        profileTimer = null;
+    };
     const stop = () => {
         generation += 1;
         currentUid = '';
+        clearProfileTimer();
         const dispose = unsubscribe;
         unsubscribe = null;
         try {
@@ -573,32 +583,29 @@ function createAccountSessionController(deps) {
     const attach = async (user) => {
         stop();
         const token = generation;
-        let claimed = false;
-        try {
-            claimed = await deps.claim(user.uid);
-        }
-        catch (error) {
-            if (token === generation)
-                deps.reportError(error);
-            throw error;
-        }
-        if (token !== generation)
-            return false;
-        if (!claimed) {
-            await deps.onRejected(user);
-            return false;
-        }
         currentUid = user.uid;
+        let profileReceived = false;
         const handlers = {
             profile: (value) => {
                 if (token !== generation || currentUid !== user.uid)
                     return;
+                profileReceived = true;
+                clearProfileTimer();
                 if (value == null) {
                     if (!deps.isRegistering())
                         deps.onMissingProfile(user.uid);
                     return;
                 }
                 deps.onProfile(user.uid, value);
+            },
+            profileError: (error) => {
+                if (token !== generation || currentUid !== user.uid)
+                    return;
+                clearProfileTimer();
+                if (deps.onProfileError)
+                    deps.onProfileError(user.uid, error);
+                else
+                    deps.reportError(error);
             },
             requests: (value) => { if (token === generation)
                 deps.onRequests(value); },
@@ -609,15 +616,37 @@ function createAccountSessionController(deps) {
             reportError: (error) => { if (token === generation)
                 deps.reportError(error); },
         };
+        const timeoutMs = Math.max(1000, deps.profileTimeoutMs ?? 12000);
+        profileTimer = setTimeout(() => {
+            profileTimer = null;
+            if (token === generation && currentUid === user.uid && !profileReceived) {
+                deps.onProfileTimeout?.(user.uid);
+            }
+        }, timeoutMs);
+        // Do not wait for the lease transaction before asking RTDB for the profile.
         try {
             unsubscribe = deps.subscribe(user.uid, handlers);
-            return true;
         }
         catch (error) {
             currentUid = '';
+            clearProfileTimer();
             deps.reportError(error);
             throw error;
         }
+        // The lease remains enforced, but is intentionally independent from profile loading.
+        // A denied/slow lease must be reported without preventing an otherwise valid sign-in.
+        void Promise.resolve()
+            .then(() => deps.claim(user.uid))
+            .then(async (claimed) => {
+            if (token !== generation || claimed)
+                return;
+            await deps.onRejected(user);
+        })
+            .catch((error) => {
+            if (token === generation)
+                deps.reportError(error);
+        });
+        return true;
     };
     return {
         attach,
@@ -4379,12 +4408,14 @@ const accountSessionController = (0, account_session_controller_js_1.createAccou
     claim: (uid) => accountLease().claim(uid),
     subscribe: (uid, handlers) => accountRepo().subscribeCurrentUser(uid, TAB, {
         profile: value => handlers.profile(normalizeAccountProfile(value)),
+        profileError: error => handlers.profileError?.(error),
         requests: value => handlers.requests(value),
         invites: value => handlers.invites(value),
         friends: value => handlers.friends(value),
         reportError: error => handlers.reportError(error),
     }),
     isRegistering: () => regBusy,
+    profileTimeoutMs: 12000,
     onProfile: (uid, value) => {
         me = { uid, ...value };
         ME.name = value.nick;
@@ -4398,7 +4429,21 @@ const accountSessionController = (0, account_session_controller_js_1.createAccou
         maybeShowRelease();
         hideLoader();
     },
-    onMissingProfile: () => { err('Профиль не найден, войди заново'); void requireAuth().signOut(); },
+    onProfileTimeout: () => {
+        if (!me) {
+            const message = 'Firebase принял пароль, но база данных не прислала профиль за 12 секунд. Проверь подключение и правила Realtime Database для users/$uid.';
+            err(message);
+        }
+    },
+    onProfileError: (_uid, error) => {
+        if (!me) {
+            const detail = errorDetails(error);
+            err(detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message)
+                ? 'Вход выполнен, но Firebase запретил чтение users/{uid}. Проверь опубликованные правила Realtime Database в этом проекте.'
+                : 'Не удалось прочитать профиль из Firebase: ' + (0, account_identity_js_1.authErrorMessage)(error));
+        }
+    },
+    onMissingProfile: () => { err('Аккаунт найден, но запись users/{uid} пуста или не содержит nick. Профиль не может быть открыт.'); void requireAuth().signOut(); },
     onRequests: value => socialScreenController.setRequests(asRecord(value)),
     onInvites: value => socialScreenController.setInvites(asRecord(value)),
     onFriends: value => socialScreenController.setFriends(asRecord(value)),
@@ -4994,8 +5039,9 @@ function gameModeLabel(value) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RELEASE_NOTES = exports.RELEASE_VERSION = void 0;
-exports.RELEASE_VERSION = 30;
+exports.RELEASE_VERSION = 31;
 exports.RELEASE_NOTES = [
+    { version: 31, description: 'Исправлена загрузка аккаунта: профиль запрашивается сразу после входа, отдельно от проверки активной вкладки. Зависание проверки сессии больше не блокирует профиль; добавлены тайм-аут ожидания, отдельная диагностика ошибок чтения и защита от устаревших блокировок при выходе.' },
     { version: 30, description: 'Исправлена инициализация входа в браузерах с ограниченным хранилищем: если постоянная Firebase-сессия недоступна, приложение пробует сессионное хранение и память и всё равно подключает обработчик состояния авторизации. Улучшены сообщения об ошибках привязки профиля и отказах Realtime Database.' },
     { version: 29, description: 'Миграция приложения переведена на строгую TypeScript-сборку: удалены @ts-nocheck и переходный legacy entrypoint, composition root переименован в application-bootstrap. Контракты DOM, Firebase, матча, профиля и эффектов проверяются в strict-режиме. Добавлен финальный регрессионный прогон 385 тестов.' },
     { version: 28, description: 'Расчёт поля, очередность раскрытия, входящие украденные карты, вместимость и неизменяемые цели похищения вынесены в отдельный board-state controller. Обе кражи фиксируются одним снимком и выполняются в одинаковом порядке на обоих клиентах. Приглашение друга в дуэль, приём подключения и тайм-аут вынесены в отдельный контроллер. Добавлены тесты цели карты № 2, момента прибытия украденной карты, переноса комбо целиком и очередности встречных краж.' },
@@ -6144,14 +6190,19 @@ class AccountRepository {
         let active = true;
         const disposers = [];
         let friendDisposers = [];
-        const subscribe = (reference, callback) => {
+        const subscribe = (reference, callback, onError) => {
             const listener = reference.on('value', (snapshot) => {
                 if (active)
                     callback(snapshot);
-            }, (error) => handlers.reportError?.(error));
+            }, (error) => (onError ?? handlers.reportError)?.(error));
             disposers.push(() => reference.off('value', listener));
         };
-        subscribe(this.database.ref(`users/${uid}`), (snapshot) => handlers.profile(snapshot.val()));
+        subscribe(this.database.ref(`users/${uid}`), (snapshot) => handlers.profile(snapshot.val()), (error) => {
+            if (handlers.profileError)
+                handlers.profileError(error);
+            else
+                handlers.reportError?.(error);
+        });
         const connectionRef = this.database.ref(`status/${uid}/connections/${tab}`);
         subscribe(this.database.ref('.info/connected'), (snapshot) => {
             if (snapshot.val()) {
@@ -6216,6 +6267,8 @@ exports.createAccountSessionLease = createAccountSessionLease;
 class AccountSessionLease {
     options;
     reference = null;
+    leaseId = '';
+    generation = 0;
     heartbeat = null;
     constructor(options) {
         this.options = {
@@ -6228,48 +6281,80 @@ class AccountSessionLease {
         };
     }
     async claim(uid) {
+        // Reserve this attempt before awaiting cleanup, so a concurrent sign-out can cancel it.
+        const token = ++this.generation;
+        await this.releaseCurrent();
+        if (token !== this.generation)
+            return false;
         const reference = this.options.database.ref(`status/${uid}/activeSession`);
         const currentTime = this.options.now();
+        const leaseId = `${this.options.tabId}:${token}:${currentTime}`;
         const result = await reference.transaction((value) => {
             const current = value;
             if (!current || current.tab === this.options.tabId ||
                 currentTime - (current.ts || 0) > this.options.leaseMs) {
-                return { tab: this.options.tabId, ts: currentTime };
+                return { tab: this.options.tabId, ts: currentTime, leaseId };
             }
             return undefined;
         }, undefined, false);
         if (!result.committed)
             return false;
+        // If sign-out or a newer attach happened while the transaction was pending,
+        // remove only this exact lease, never the newer tab/session's lease.
+        if (token !== this.generation) {
+            await this.removeOwnedLease(reference, leaseId);
+            return false;
+        }
         this.reference = reference;
+        this.leaseId = leaseId;
         try {
             await reference.onDisconnect().remove();
         }
-        catch { /* lease heartbeat remains the fallback */ }
+        catch { /* heartbeat remains the fallback */ }
+        if (token !== this.generation) {
+            await this.removeOwnedLease(reference, leaseId);
+            try {
+                await reference.onDisconnect().cancel();
+            }
+            catch { /* best effort */ }
+            return false;
+        }
         if (this.heartbeat)
             this.options.clearIntervalFn(this.heartbeat);
         this.heartbeat = this.options.setIntervalFn(() => {
             void reference.transaction((value) => {
                 const current = value;
-                return current?.tab === this.options.tabId
-                    ? { tab: this.options.tabId, ts: this.options.now() }
+                return current?.tab === this.options.tabId && current.leaseId === leaseId
+                    ? { tab: this.options.tabId, ts: this.options.now(), leaseId }
                     : current;
             }, undefined, false).catch(() => undefined);
         }, this.options.heartbeatMs);
         return true;
     }
-    async release() {
+    async removeOwnedLease(reference, leaseId) {
+        try {
+            await reference.transaction((value) => {
+                const current = value;
+                return current?.leaseId === leaseId ? null : current;
+            }, undefined, false);
+        }
+        catch { /* best effort cleanup of an abandoned claim */ }
+    }
+    async releaseCurrent() {
         if (this.heartbeat) {
             this.options.clearIntervalFn(this.heartbeat);
             this.heartbeat = null;
         }
         const reference = this.reference;
+        const leaseId = this.leaseId;
         this.reference = null;
+        this.leaseId = '';
         if (!reference)
             return;
         try {
             await reference.transaction((value) => {
                 const current = value;
-                return current?.tab === this.options.tabId ? null : current;
+                return current?.tab === this.options.tabId && current.leaseId === leaseId ? null : current;
             }, undefined, false);
         }
         catch { /* best effort release during sign-out/navigation */ }
@@ -6277,6 +6362,11 @@ class AccountSessionLease {
             await reference.onDisconnect().cancel();
         }
         catch { /* best effort disconnect cleanup */ }
+    }
+    async release() {
+        // Invalidate pending transactions immediately; they clean up their own result on completion.
+        this.generation += 1;
+        await this.releaseCurrent();
     }
 }
 exports.AccountSessionLease = AccountSessionLease;
