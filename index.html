@@ -2432,6 +2432,7 @@ exports.createRevealController = createRevealController;
 /** Owns the turn reveal sequence; every state/DOM effect is provided by adapters. */
 const combo_engine_js_1 = require("../engine/combo-engine.js");
 const isIncoming = (token) => token.startsWith('i');
+const fusionHasIncoming = (event) => event.mem.some((member) => isIncoming(member.t));
 function createRevealController(deps) {
     return {
         async reveal(side, cardId) {
@@ -2467,7 +2468,7 @@ function createRevealController(deps) {
                 }
                 const current = deps.layout(side, deps.displayEntries(side));
                 const ownFusionEvents = current.ev.filter((event) => event.tok === `o${revealIndex}` && !event.extend);
-                const newlyVisibleFusions = current.ev.filter((event) => !previousFusionKeys.has((0, combo_engine_js_1.evKey)(event)) && (event.tok === `o${revealIndex}` || isIncoming(event.tok)));
+                const newlyVisibleFusions = current.ev.filter((event) => !previousFusionKeys.has((0, combo_engine_js_1.evKey)(event)) && (event.tok === `o${revealIndex}` || fusionHasIncoming(event)));
                 const villainSynergyAppeared = deps.isVillainTrio(current.s, current.st)
                     && !deps.isVillainTrio(before.s, before.st);
                 if (side === 'me' && revealIndex >= deps.getComboDone()) {
@@ -2478,7 +2479,7 @@ function createRevealController(deps) {
                     deps.saveSnapshot();
                 }
                 if (newlyVisibleFusions.length > 0) {
-                    await deps.playFusions(side, newlyVisibleFusions, check, (event) => isIncoming(event.tok)
+                    await deps.playFusions(side, newlyVisibleFusions, check, (event) => fusionHasIncoming(event)
                         ? '🦹 Украденная карта складывается с картами вора'
                         : `${character.e} ${character.n} · ⚔${character.a} 🧠${character.t} 🛡${character.d}`);
                 }
@@ -2875,7 +2876,10 @@ function createStealController(deps) {
             deps.setOverlay(null);
             // An incoming card can complete a combo immediately after landing.
             const thiefAfter = deps.layout(thief, deps.displayEntries(thief));
-            const incomingFusions = thiefAfter.ev.filter((event) => String(event.tok)[0] === 'i');
+            // An incoming card may arrive before later revealed cards. The last
+            // revealed member can trigger the fusion, so check event membership,
+            // not only the token of the card that happened to trigger it.
+            const incomingFusions = thiefAfter.ev.filter((event) => event.mem.some((member) => String(member.t).startsWith('i')));
             if (incomingFusions.length > 0) {
                 await deps.playFusions(thief, incomingFusions, check, () => '🦹 Украденная карта складывается с картами вора');
             }
@@ -3214,6 +3218,7 @@ const boardState = (0, board_state_controller_js_1.createBoardStateController)({
     getDebuff: side => side === 'me' ? myDeb : (opp && opp.deb),
     getStealState: () => STL,
     getOverride: () => OV,
+    isRevealStage: () => rv(),
 });
 const blockRuleForSide = (side) => boardState.blockRuleForSide(side);
 const rememberSlotHints = (side, layout) => boardState.rememberSlotHints(side, layout);
@@ -3286,12 +3291,15 @@ const boardView = (0, board_view_controller_js_1.createBoardViewController)({
         let pend = [];
         const thiefOf = side === 'me' ? 'opp' : 'me';
         if (rv() && OV && OV.side === side && OV.steal && landDone(thiefOf)) {
-            // Собственная прилетевшая карта остаётся в нижнем слоте, пока улетает чужая.
-            pend = pendingInboxOf(side);
+            // A standalone incoming card stays in its reserved bottom slot. If it
+            // has already fused with an own card, it is part of that combo and must
+            // not be painted a second time as a separate pending card.
+            if (!(0, board_layout_js_1.hasIncomingFusion)(layout))
+                pend = pendingInboxOf(side);
         }
         else if (rv() && !revealDone(side) && landDone(thiefOf) && !(OV && OV.side === side)) {
             const sequence = seqDisp(side), incomingLayout = laySideX2(side, sequence);
-            if (!incomingLayout.ev.some(e => String(e.tok)[0] === 'i')) {
+            if (!(0, board_layout_js_1.hasIncomingFusion)(incomingLayout)) {
                 layout = laySideX2(side, sequence.filter(e => e.t[0] === 'o'));
                 pend = pendingInboxOf(side);
             }
@@ -3300,8 +3308,14 @@ const boardView = (0, board_view_controller_js_1.createBoardViewController)({
         const slotCount = rv() ? capBoardSlots(visualSlotCapacity(side)) : SIZE;
         const reserveIncoming = pend.length ? 1 : (STL.flying === side ? 1 : 0);
         const baseCapacity = Math.max(0, slotCount - reserveIncoming);
-        layout = (0, board_layout_js_1.fitLayoutToCapacity)(layout, baseCapacity);
-        rememberSlotHints(side, layout);
+        const ownPhysicalLayout = (0, board_layout_js_1.fitLayoutToCapacity)(layout, baseCapacity);
+        const hintLayout = pend.length
+            ? (0, board_layout_js_1.appendPendingAtReservedSlots)(ownPhysicalLayout, pend, slotCount)
+            : ownPhysicalLayout;
+        // Remember pending i0 even though its card face is rendered separately in
+        // the last slot; otherwise a later theft would forget its position.
+        rememberSlotHints(side, hintLayout);
+        layout = ownPhysicalLayout;
         const previous = DRAWN[id], sixthSlotWasVisible = !!host.querySelector('.slot[data-i="' + (SIZE + 1) + '"]');
         const sd = side === 'me' ? 'm' : 'o';
         return {
@@ -3456,7 +3470,6 @@ const stealFlightAnimator = (0, steal_flight_animation_js_1.createStealFlightAni
     getShownCount: side => Array.isArray(shown[side]) ? shown[side].length : 0,
     setArrivalAt: (side, count) => { STL.arrivalAt[side] = count; },
     clearOverlay: () => { OV = null; },
-    clearSlotHints: side => boardState.clearSlotHints(side),
     setShiftAfterSteal: side => { SHIFT_AFTER_STEAL = side; },
     setShiftLockSide: side => { SHIFT_LOCK_SIDE = side; },
     saveSnapshot: () => snapSave(),
@@ -5039,8 +5052,9 @@ function gameModeLabel(value) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RELEASE_NOTES = exports.RELEASE_VERSION = void 0;
-exports.RELEASE_VERSION = 31;
+exports.RELEASE_VERSION = 34;
 exports.RELEASE_NOTES = [
+    { version: 34, description: 'Исправлена повторная кража на поле 5×5: уход карты оставляет пустой физический слот, не сдвигая стоящие после неё карты. Первая украденная карта закрепляется в шестом слоте и не телепортируется вверх во время встречной кражи. Визуальная вместимость поля отделена от количества карт, нужного для завершения раунда; входящая карта сохраняет свою привязку даже при отдельном рендере в нижнем слоте.' },
     { version: 31, description: 'Исправлена загрузка аккаунта: профиль запрашивается сразу после входа, отдельно от проверки активной вкладки. Зависание проверки сессии больше не блокирует профиль; добавлены тайм-аут ожидания, отдельная диагностика ошибок чтения и защита от устаревших блокировок при выходе.' },
     { version: 30, description: 'Исправлена инициализация входа в браузерах с ограниченным хранилищем: если постоянная Firebase-сессия недоступна, приложение пробует сессионное хранение и память и всё равно подключает обработчик состояния авторизации. Улучшены сообщения об ошибках привязки профиля и отказах Realtime Database.' },
     { version: 29, description: 'Миграция приложения переведена на строгую TypeScript-сборку: удалены @ts-nocheck и переходный legacy entrypoint, composition root переименован в application-bootstrap. Контракты DOM, Firebase, матча, профиля и эффектов проверяются в strict-режиме. Добавлен финальный регрессионный прогон 385 тестов.' },
@@ -5099,8 +5113,12 @@ function capBoardSlots(slots, baseSize) {
 function boardTargetCapacity(baseSlots, incomingArrived, outgoingTargetExists, baseSize) {
     return capBoardSlots(baseSlots + (incomingArrived ? 1 : 0) - (outgoingTargetExists ? 1 : 0), baseSize);
 }
-function visualBoardCapacity(baseSlots, incomingArrivedOrFlying, outgoingCompleted, baseSize) {
-    return capBoardSlots(baseSlots + (incomingArrivedOrFlying ? 1 : 0) - (outgoingCompleted ? 1 : 0), baseSize);
+function visualBoardCapacity(baseSlots, incomingArrivedOrFlying, _outgoingCompleted, baseSize) {
+    // This is physical DOM capacity, not the number of occupied cards required
+    // to complete the board. Removing a card creates a hole; it must not shrink
+    // the grid and make every card after it jump one slot upward. Incoming cards
+    // retain the extra reserved slot even when the same side also loses a card.
+    return capBoardSlots(baseSlots + (incomingArrivedOrFlying ? 1 : 0), baseSize);
 }
 function isBoardComplete(occupiedSlots, targetSlots) {
     return occupiedSlots >= targetSlots;
@@ -5114,6 +5132,8 @@ exports.fitLayoutToCapacity = fitLayoutToCapacity;
 exports.updateSlotHints = updateSlotHints;
 exports.applySlotHints = applySlotHints;
 exports.stabilizeComboLayout = stabilizeComboLayout;
+exports.appendPendingAtReservedSlots = appendPendingAtReservedSlots;
+exports.hasIncomingFusion = hasIncomingFusion;
 exports.completeFusionFrame = completeFusionFrame;
 function fitLayoutToCapacity(layout, capacity) {
     const cap = Math.max(0, Math.floor(Number(capacity) || 0));
@@ -5197,6 +5217,36 @@ function stabilizeComboLayout(raw, hints, capacity) {
         return { ...event, src: sourceSlots.length ? sourceSlots : event.src, at: resultSlot >= 0 ? resultSlot : event.at, before: before.s, stBefore: before.st, after: after.s, stAfter: after.st };
     });
     return { ...raw, s: stable.s, st: stable.st, ev: events };
+}
+/**
+ * Builds the slot-hint projection used by the renderer when incoming cards are
+ * painted in a separate reserved slot. The card is not part of the truncated
+ * own-card layout, but its physical slot still has to be remembered so a later
+ * theft cannot pull it upward when another card is removed.
+ */
+function appendPendingAtReservedSlots(ownLayout, pending, slotCount) {
+    const result = fitLayoutToCapacity(ownLayout, slotCount);
+    const present = new Set(result.st.flatMap((group) => (group ?? []).map((member) => member?.t).filter((token) => typeof token === 'string' && token.length > 0)));
+    const start = Math.max(0, slotCount - pending.length);
+    pending.forEach((entry, index) => {
+        if (present.has(entry.t))
+            return;
+        const slot = start + index;
+        if (slot < 0 || slot >= slotCount || result.s[slot] != null)
+            return;
+        result.s[slot] = entry.c;
+        result.st[slot] = [{ ...entry }];
+        present.add(entry.t);
+    });
+    return result;
+}
+/** True when an incoming instance has fused into a board entity with own cards. */
+function hasIncomingFusion(layout) {
+    return (layout.st ?? []).some((group) => {
+        const members = group ?? [];
+        return members.some((member) => typeof member.t === 'string' && member.t.startsWith('i'))
+            && members.some((member) => typeof member.t === 'string' && !member.t.startsWith('i'));
+    });
 }
 /** Reconstructs the exact pre/post-fusion animation frame without shifting bystanders. */
 function completeFusionFrame(snapshot, snapshotSt, event, sourceEntries, stablePositions, capacity, stableMeta) {
@@ -5322,6 +5372,57 @@ function createBoardStateController(deps) {
         const raw = (0, combo_engine_js_1.resolveCombos)(entries, blockRuleForSide(side));
         return (0, board_layout_js_1.stabilizeComboLayout)(raw, slotHints[side], Math.max(raw.s.length, deps.getSize() + 1));
     }
+    /**
+     * During reveal, a non-combining stolen card is deliberately rendered in the
+     * reserved last slot.  Theft target resolution must use that same physical
+     * projection; using the chronological arrival position here made the code
+     * target (for example) slot 3 while the player saw the stolen card in slot 6.
+     */
+    function layoutForStealTarget(side, entries) {
+        const resolved = layoutEntries(entries, side);
+        const incoming = entries.filter((entry) => typeof entry.t === 'string' && entry.t.startsWith('i'));
+        if (!incoming.length || !deps.isRevealStage?.() || !landDone(otherSide(side))) {
+            return { s: resolved.s, st: resolved.st };
+        }
+        // Incoming cards that already participate in a combo are rendered in the
+        // canonical combo layout, not as a separate pending card.
+        if (resolved.ev.some((event) => event.mem.some((member) => String(member.t).startsWith('i')))) {
+            return { s: resolved.s, st: resolved.st };
+        }
+        const state = deps.getStealState();
+        const allOwnCardsShown = shownOf(side).length >= cardsOf(side).length;
+        let revealDone = false;
+        if (allOwnCardsShown && state.targets?.[side]) {
+            // Match boardDone() without calling landOfVictim(side) recursively.
+            const completeOwnEntries = (0, board_sequence_js_1.makeBoardEntries)(cardsOf(side));
+            const completeEntries = withIncomingAtArrival(side, completeOwnEntries);
+            const targetCapacity = (0, board_capacity_js_1.boardTargetCapacity)(deps.getBaseSlots(side), true, true, deps.getSize());
+            const completeLayout = (0, board_layout_js_1.fitLayoutToCapacity)(layoutEntries(completeEntries, side), targetCapacity);
+            revealDone = (0, board_capacity_js_1.isBoardComplete)(completeLayout.s.filter((card) => card != null).length, targetCapacity);
+        }
+        if (revealDone)
+            return { s: resolved.s, st: resolved.st };
+        // Mirror board-renderer: reserve the final physical slot for the incoming
+        // card and lay out only the recipient's own revealed cards before it.
+        const slotCount = (0, board_capacity_js_1.visualBoardCapacity)(deps.getBaseSlots(side), true, false, deps.getSize());
+        const baseCapacity = Math.max(0, slotCount - incoming.length);
+        const ownEntries = entries.filter((entry) => !(typeof entry.t === 'string' && entry.t.startsWith('i')));
+        const ownLayout = (0, board_layout_js_1.fitLayoutToCapacity)(layoutEntries(ownEntries, side), baseCapacity);
+        const s = Array(slotCount).fill(null);
+        const st = Array(slotCount).fill(null);
+        for (let index = 0; index < baseCapacity; index += 1) {
+            s[index] = ownLayout.s[index] ?? null;
+            st[index] = ownLayout.st[index] ? ownLayout.st[index].map((member) => ({ ...member })) : null;
+        }
+        incoming.forEach((entry, index) => {
+            const slot = baseCapacity + index;
+            if (slot < slotCount) {
+                s[slot] = Number(entry.c);
+                st[slot] = [{ ...entry, c: Number(entry.c) }];
+            }
+        });
+        return { s, st };
+    }
     function rememberSlotHints(side, layout) {
         const override = deps.getOverride();
         if (override?.side === side)
@@ -5342,7 +5443,7 @@ function createBoardStateController(deps) {
             cachedTarget: state.targets?.[victim],
             isCompleted: side => !!state.completed?.[side],
             layout: entries => {
-                const resolved = layoutEntries(entries.map(member => ({ ...member, c: Number(member.c), t: member.t })), victim);
+                const resolved = layoutForStealTarget(victim, entries.map(member => ({ ...member, c: Number(member.c), t: member.t })));
                 // Steal resolver treats holes as absent metadata; normalize nulls at this boundary.
                 return { s: resolved.s, st: resolved.st.map(group => group ?? undefined) };
             },
@@ -5386,11 +5487,12 @@ function createBoardStateController(deps) {
         return (0, board_capacity_js_1.boardTargetCapacity)(deps.getBaseSlots(side), landDone(otherSide(side)), !!landOfVictim(side), deps.getSize());
     }
     function visualSlotCapacity(side) {
-        const thief = otherSide(side);
         const state = deps.getStealState();
-        const incoming = landDone(thief) || state.flying === side;
-        const outgoing = landDone(side);
-        return (0, board_capacity_js_1.visualBoardCapacity)(deps.getBaseSlots(side), incoming, outgoing, deps.getSize());
+        // Count only an incoming entity that is still on this board. If it has
+        // joined the outgoing target, pendingInboxOf removes it and no extra slot
+        // is needed. Otherwise its reserved physical slot survives a counter-steal.
+        const incoming = pendingInboxOf(side).length > 0 || state.flying === side;
+        return (0, board_capacity_js_1.visualBoardCapacity)(deps.getBaseSlots(side), incoming, false, deps.getSize());
     }
     function withIncomingAtArrival(side, ownEntries) {
         const incoming = inboxOf(side);
@@ -5425,7 +5527,9 @@ function createBoardStateController(deps) {
             }
             return (0, board_layout_js_1.fitLayoutToCapacity)(layoutEntries(displayEntries(side), side), cap);
         }
-        return (0, board_layout_js_1.fitLayoutToCapacity)(layoutEntries(finalEntries(side), side), boardTarget(side));
+        // Keep physical positions (including holes left by theft) in the final
+        // board projection. boardTarget() separately controls completion count.
+        return (0, board_layout_js_1.fitLayoutToCapacity)(layoutEntries(finalEntries(side), side), visualSlotCapacity(side));
     }
     function boardFill(side) {
         return layout(side, false).s.filter(card => card != null).length;
@@ -8526,7 +8630,8 @@ function createStealFlightAnimator(deps) {
             deps.setFlying(null);
             deps.setStarted(victimSide, false);
             deps.setCompleted(victimSide, true);
-            deps.clearSlotHints(victimSide);
+            // Do not clear slot hints here: every surviving card, including an
+            // earlier stolen card in the reserved slot, must keep its physical place.
             deps.setShiftAfterSteal(victimSide);
             deps.setShiftLockSide(victimSide);
             deps.saveSnapshot();
