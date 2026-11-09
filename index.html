@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" data-version="35.0.0"><head><meta charset="utf-8">
+<html lang="ru" data-version="37.0.0"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Пони-Арена</title>
 <style>
@@ -2501,7 +2501,14 @@ function createRevealController(deps) {
                 deps.resetVisualsAfterFailure();
                 if (error !== 'x') {
                     deps.setAnimating(false);
+                    try {
+                        deps.drawSlots();
+                    }
+                    catch (renderError) {
+                        deps.reportError(renderError);
+                    }
                     deps.reportError(error);
+                    deps.update();
                 }
             }
         },
@@ -2864,7 +2871,17 @@ function createStealController(deps) {
             // This is the critical safety check: no old slot/index fallback is allowed.
             // The selected source tokens must still belong to one unambiguous live entity.
             if ((0, steal_identity_js_1.findExactSourceSlot)(victimBefore.st, frozenTarget.members) < 0) {
-                throw new Error('Цель похищения больше не соответствует выбранным ID карт; безопасная кража отменена');
+                // The board changed after both sides' targets were frozen. Cancel
+                // only this stale target; the coordinator must still process the
+                // other player's theft and finish the shared reveal cycle.
+                deps.cancelStaleTarget?.(victim);
+                deps.setStarted(victim, false);
+                deps.setCompleted(victim, true);
+                deps.setFlying(null);
+                deps.setOverlay(null);
+                deps.setShiftLockSide(null);
+                deps.drawSlots();
+                return false;
             }
             deps.setStarted(victim, true);
             deps.setCompleted(victim, false);
@@ -2906,6 +2923,9 @@ function createStealController(deps) {
             }
             deps.tryAttach();
             deps.setShiftLockSide(null);
+            // Reconcile again after unlocking. In a mutual-theft chain the next
+            // flight may have skipped one side while its previous FLIP settled.
+            deps.drawSlots();
             return true;
         },
     };
@@ -2936,7 +2956,6 @@ function createStealRoundCoordinator(deps) {
             const target = deps.getTarget(victim);
             const cards = deps.getCards(victim);
             const visible = deps.getVisibleCards(victim);
-            // An empty selected slot is skippable only after that side has revealed all cards.
             if (!target) {
                 if (visible.length < cards.length)
                     return null;
@@ -2956,32 +2975,62 @@ function createStealRoundCoordinator(deps) {
                 continue;
             candidates[victim] = deps.getTarget(victim);
         }
-        // Freeze both targets before either flight can mutate either board.
+        // Freeze both choices before the first flight changes either board.
         const frozen = (0, steal_identity_js_1.freezeStealTargets)(candidates);
         for (const side of ['me', 'opp']) {
             if (!state.frozenTargets[side] && frozen[side])
                 state.frozenTargets[side] = frozen[side];
         }
-        for (const victim of orderedSides()) {
-            if (state.completed[victim])
-                continue;
-            if (state.started[victim])
-                return;
-            if (!hasSteal(victim))
-                continue;
-            const target = deps.getTarget(victim);
-            const cards = deps.getCards(victim);
-            const visible = deps.getVisibleCards(victim);
-            if (!target) {
-                if (visible.length < cards.length)
+        try {
+            for (const victim of orderedSides()) {
+                if (state.completed[victim])
+                    continue;
+                // A concurrently running resolution owns the whole pair. Never
+                // start a second flight for the other side in parallel.
+                if (state.started[victim])
                     return;
-                continue;
+                if (!hasSteal(victim))
+                    continue;
+                const target = deps.getTarget(victim);
+                const cards = deps.getCards(victim);
+                const visible = deps.getVisibleCards(victim);
+                if (!target) {
+                    if (visible.length < cards.length)
+                        return;
+                    continue;
+                }
+                if (visible.length <= target.j)
+                    return;
+                check();
+                try {
+                    await deps.execute(victim, target, roundKey, check);
+                    check();
+                }
+                catch (error) {
+                    // Preserve round cancellation semantics. A stale epoch throws
+                    // the sentinel 'x' from check() and must stop this old cycle.
+                    check();
+                    if (error === 'x')
+                        throw error;
+                    const recovered = deps.recoverFailedExecution?.(victim, error);
+                    if (recovered !== true)
+                        throw error;
+                    deps.onExecutionError?.(victim, error);
+                    // A single failed/aborted animation must not silently skip the
+                    // opposite player's already-frozen counter-theft.
+                    check();
+                }
             }
-            if (visible.length <= target.j)
-                return;
-            check();
-            await deps.execute(victim, target, roundKey, check);
-            check();
+        }
+        finally {
+            // Always reconcile both boards after the ordered pair. A renderer
+            // failure is reported but must not mask a more useful game-cycle error.
+            try {
+                deps.afterResolution?.();
+            }
+            catch (error) {
+                deps.onResolutionError?.(error);
+            }
         }
     }
     return { orderedSides, nextPending, executePending };
@@ -3475,12 +3524,19 @@ const stealFlightAnimator = (0, steal_flight_animation_js_1.createStealFlightAni
     setWheelLabel: label => { $('wlab').textContent = label; },
     getShownCount: side => Array.isArray(shown[side]) ? shown[side].length : 0,
     setArrivalAt: (side, count) => { STL.arrivalAt[side] = count; },
+    cancelTarget: side => {
+        if (!STL.targets) STL.targets = { me: null, opp: null };
+        if (!STL.frozenTargets) STL.frozenTargets = { me: null, opp: null };
+        STL.targets[side] = null;
+        STL.frozenTargets[side] = null;
+    },
     clearOverlay: () => { OV = null; },
     setShiftAfterSteal: side => { SHIFT_AFTER_STEAL = side; },
     setShiftLockSide: side => { SHIFT_LOCK_SIDE = side; },
     saveSnapshot: () => snapSave(),
     createElement: tag => document.createElement(tag),
-    appendGhost: element => document.body.appendChild(element)
+    appendGhost: element => document.body.appendChild(element),
+    reportError: error => console.error('Ошибка анимации похищения:', error)
 });
 async function stealFly(V, l, stableMembers) { return stealFlightAnimator(V, l, stableMembers); }
 // Комбо, собранное украденными картами, засчитывается вору (мне — если я вор)
@@ -3539,6 +3595,12 @@ const stealController = (0, steal_controller_js_1.createStealController)({
     getFrozenTarget: V => STL.frozenTargets && STL.frozenTargets[V] || null,
     setFrozenTarget: (V, target) => { if (!STL.frozenTargets)
         STL.frozenTargets = { me: null, opp: null }; STL.frozenTargets[V] = target; },
+    cancelStaleTarget: V => {
+        if (!STL.targets) STL.targets = { me: null, opp: null };
+        if (!STL.frozenTargets) STL.frozenTargets = { me: null, opp: null };
+        STL.targets[V] = null;
+        STL.frozenTargets[V] = null;
+    },
     setStarted: (V, value) => { STL.started[V] = value; },
     setCompleted: (V, value) => { STL.completed[V] = value; },
     setFlying: T => { STL.flying = T; },
@@ -3573,6 +3635,34 @@ const stealRoundCoordinator = (0, steal_round_coordinator_js_1.createStealRoundC
     getCards: cardsOf,
     getVisibleCards: side => shown[side] || [],
     execute: executeSteal,
+    recoverFailedExecution: (victim, error) => {
+        // If the flight had already committed, preserve the incoming card. If it
+        // had not, cancel only this stale attempt so the other player's theft can run.
+        const committed = !!STL.completed[victim];
+        if (!committed) {
+            if (!STL.targets) STL.targets = { me: null, opp: null };
+            if (!STL.frozenTargets) STL.frozenTargets = { me: null, opp: null };
+            STL.targets[victim] = null;
+            STL.frozenTargets[victim] = null;
+            STL.completed[victim] = true;
+        }
+        STL.started[victim] = false;
+        STL.flying = null;
+        OV = null;
+        FZ = [];
+        FN = -1;
+        HL = [];
+        SHIFT_AFTER_STEAL = null;
+        SHIFT_LOCK_SIDE = null;
+        boardState.clearSlotHints(victim);
+        try { drawSlots(); } catch (renderError) { console.error('Ошибка восстановления поля после кражи:', renderError); }
+        try { snapSave(); } catch (snapshotError) { console.error('Не удалось сохранить восстановленное состояние кражи:', snapshotError); }
+        console.error('Ошибка операции похищения; поле восстановлено:', victim, error);
+        return true;
+    },
+    onExecutionError: (victim, error) => console.warn('Похищение восстановлено после ошибки:', victim, error),
+    onResolutionError: error => console.error('Не удалось обновить поле после кражи:', error),
+    afterResolution: () => { SHIFT_LOCK_SIDE = null; drawSlots(); },
 });
 function nextPendingSteal() {
     const next = stealRoundCoordinator.nextPending();
@@ -3879,7 +3969,7 @@ const toPath = (t) => NET_ROOT + '/' + t.slice(P.length);
 const errorDetails = (e) => { const value = e && typeof e === 'object' ? e : {}; return { code: typeof value.code === 'string' ? value.code : '', message: typeof value.message === 'string' ? value.message : String(e ?? '') }; };
 const accountSessionError = (e) => { const detail = errorDetails(e); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
     return 'Firebase выполнил вход, но Realtime Database запретила доступ к профилю или сессии. Проверь и опубликуй firebase_rules.json в том же проекте Firebase.'; return 'Вход выполнен, но профиль не удалось подключить: ' + (0, account_identity_js_1.authErrorMessage)(e); };
-const netErr = (e) => { const detail = errorDetails(e); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
+const netErr = (e) => { const detail = errorDetails(e); console.warn('Ошибка Firebase Realtime Database:', detail.code || 'unknown', detail.message); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
     err('Нет доступа к данным аккаунта/сервера: проверь опубликованные правила Firebase (firebase_rules.json)'); };
 const NetClient = ApplicationNetClient;
 const connectionFactory = (0, connection_factory_js_1.createConnectionFactory)({
@@ -5061,8 +5151,10 @@ function gameModeLabel(value) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RELEASE_NOTES = exports.RELEASE_VERSION = void 0;
-exports.RELEASE_VERSION = 35;
+exports.RELEASE_VERSION = 37;
 exports.RELEASE_NOTES = [
+    { version: 37, description: 'Укреплена обработка ошибок встречных краж: сбой одной операции больше не прерывает вторую; после частичной ошибки восстанавливаются DOM, блокировки и снимок раунда. Перелёт карты теперь использует полный защитный finally: временная карта/DOM-узел всегда очищаются, исходная карта не остаётся скрытой, а подтверждённый перенос завершается даже при отказе Web Animations API. Firebase-присутствие переотправляется только после регистрации onDisconnect; при переподключении регистрация и публикация выполняются последовательно, а ошибки повторной отправки больше не скрываются.' },
+    { version: 36, description: 'Исправлена синхронизация поля после встречных краж: устаревшая зафиксированная цель отменяется безопасно без прерывания очереди; после завершения последовательности оба поля принудительно сверяются с состоянием матча; ошибки анимации больше не оставляют экран без повторной отрисовки.' },
     { version: 35, description: 'После завершения перелёта похищенной карты поле пострадавшего игрока уплотняется: карты ниже удалённой плавно сдвигаются вверх через FLIP-анимацию, пустая ячейка больше не остаётся в середине или в конце последовательности. Привязки слотов пересоздаются только после полёта и только для затронутой стороны; выбор цели остаётся привязан к immutable ID.' },
     { version: 34, description: 'Исправлена повторная кража на поле 5×5: уход карты оставляет пустой физический слот, не сдвигая стоящие после неё карты. Первая украденная карта закрепляется в шестом слоте и не телепортируется вверх во время встречной кражи. Визуальная вместимость поля отделена от количества карт, нужного для завершения раунда; входящая карта сохраняет свою привязку даже при отдельном рендере в нижнем слоте.' },
     { version: 31, description: 'Исправлена загрузка аккаунта: профиль запрашивается сразу после входа, отдельно от проверки активной вкладки. Зависание проверки сессии больше не блокирует профиль; добавлены тайм-аут ожидания, отдельная диагностика ошибок чтения и защита от устаревших блокировок при выходе.' },
@@ -5444,6 +5536,10 @@ function createBoardStateController(deps) {
         const debuff = deps.getDebuff(thief);
         const definition = debuff ? catalog_js_1.DB[debuff.k] : undefined;
         const state = deps.getStealState();
+        // A stale frozen target can be explicitly cancelled by the steal
+        // controller. Do not immediately rediscover the same slot on redraw.
+        if (state.completed?.[victim] && !state.targets?.[victim])
+            return null;
         const visible = shownOf(victim);
         return (0, steal_target_resolver_js_1.resolveStealTarget)({
             side: victim,
@@ -7203,10 +7299,7 @@ function createOpponentStatusWatcher(deps) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NetClient = void 0;
-/**
- * Transport contract retained for the existing app while the network UI is
- * migrated. Importantly, this class owns only transport state, never game state.
- */
+/** Reliable RTDB transport with ordered onDisconnect registration and presence replay. */
 class NetClient {
     will;
     database;
@@ -7218,6 +7311,8 @@ class NetClient {
     subs = new Map();
     own = new Map();
     armed = new Set();
+    arming = new Map();
+    connectionGeneration = 0;
     keep;
     connectedRef = null;
     connectedCallback = null;
@@ -7232,6 +7327,10 @@ class NetClient {
         this.byeMs = options.byeMs ?? 2500;
         this.keep = setInterval(() => this.refresh(), options.keepMs ?? 8000);
     }
+    report(error) {
+        try { this.reportError?.(error); }
+        catch { /* transport diagnostics cannot break transport state */ }
+    }
     on(event, handler) {
         if (event === 'message')
             this.handlers.push(handler);
@@ -7239,12 +7338,8 @@ class NetClient {
     }
     emit(topic, serialized) {
         for (const handler of this.handlers) {
-            try {
-                handler(topic, { toString: () => serialized });
-            }
-            catch {
-                // An application message handler must not break transport delivery.
-            }
+            try { handler(topic, { toString: () => serialized }); }
+            catch { /* an application handler must not break transport delivery */ }
         }
     }
     attach(onUp) {
@@ -7252,35 +7347,97 @@ class NetClient {
         this.connectedCallback = (snapshot) => {
             if (this.dead)
                 return;
-            this.up = snapshot.val() === true;
-            if (this.up) {
-                this.armAll();
-                onUp?.();
+            const nextUp = snapshot.val() === true;
+            const wasUp = this.up;
+            this.up = nextUp;
+            if (!nextUp) {
+                if (wasUp) {
+                    this.connectionGeneration += 1;
+                    this.armed.clear();
+                }
+                return;
+            }
+            if (!wasUp) {
+                const generation = ++this.connectionGeneration;
+                void this.armAll(generation).finally(() => {
+                    if (!this.dead && this.up && this.connectionGeneration === generation) {
+                        try { onUp?.(); }
+                        catch (error) { this.report(error); }
+                    }
+                });
             }
         };
-        this.connectedRef.on('value', this.connectedCallback, this.reportError);
+        this.connectedRef.on('value', this.connectedCallback, error => this.report(error));
     }
-    arm(path) {
-        this.armed.add(path);
-        void this.database.ref(path).onDisconnect().remove().catch(this.reportError);
+    arm(path, force = false, generation = this.connectionGeneration) {
+        if (this.dead || !this.up || generation !== this.connectionGeneration)
+            return Promise.resolve(false);
+        if (!force && this.armed.has(path))
+            return Promise.resolve(true);
+        const existing = this.arming.get(path);
+        if (existing?.generation === generation)
+            return existing.promise;
+        const entry = { generation, promise: null };
+        entry.promise = Promise.resolve()
+            .then(() => this.database.ref(path).onDisconnect().remove())
+            .then(async () => {
+                if (this.dead || !this.up || generation !== this.connectionGeneration) {
+                    // Do not cancel here: a late completion from an old generation
+                    // must not cancel a newer registration for the same RTDB path.
+                    return false;
+                }
+                this.armed.add(path);
+                return true;
+            })
+            .catch(error => {
+                this.armed.delete(path);
+                this.report(error);
+                return false;
+            })
+            .finally(() => {
+                if (this.arming.get(path) === entry)
+                    this.arming.delete(path);
+            });
+        this.arming.set(path, entry);
+        return entry.promise;
     }
-    armAll() {
-        if (this.will)
-            this.arm(this.toPath(this.will.topic));
-        for (const [path, value] of this.own) {
-            this.arm(path);
-            void this.database.ref(path).set(value).catch(this.reportError);
-        }
+    async armAll(generation = this.connectionGeneration) {
+        if (this.dead || !this.up || generation !== this.connectionGeneration)
+            return;
+        const paths = new Set();
+        if (this.will?.topic)
+            paths.add(this.toPath(this.will.topic));
+        for (const path of this.own.keys())
+            paths.add(path);
+        await Promise.all([...paths].map(async path => {
+            await this.arm(path, true, generation);
+            if (this.dead || !this.up || generation !== this.connectionGeneration)
+                return;
+            const value = this.own.get(path);
+            if (value === undefined)
+                return;
+            try { await this.database.ref(path).set(value); }
+            catch (error) { this.report(error); }
+        }));
+    }
+    async writeOwned(path) {
+        const generation = this.connectionGeneration;
+        if (this.dead || !this.up)
+            return;
+        await this.arm(path, false, generation);
+        if (this.dead || !this.up || generation !== this.connectionGeneration)
+            return;
+        const value = this.own.get(path);
+        if (value === undefined)
+            return;
+        try { await this.database.ref(path).set(value); }
+        catch (error) { this.report(error); }
     }
     refresh() {
         if (!this.up || this.dead)
             return;
-        if (this.will)
-            this.arm(this.toPath(this.will.topic));
-        for (const [path, value] of this.own) {
-            this.arm(path);
-            void this.database.ref(path).set(value).catch(() => undefined);
-        }
+        // Re-arm after every reconnect and periodically refresh the latest value.
+        void this.armAll(this.connectionGeneration);
     }
     subscribe(topics) {
         for (const topic of [].concat(topics))
@@ -7323,7 +7480,7 @@ class NetClient {
             last = serialized;
             this.emit(topic, serialized);
         };
-        ref.on('value', callback, this.reportError);
+        ref.on('value', callback, error => this.report(error));
         this.subs.set(topic, () => ref.off('value', callback));
     }
     publish(topic, serialized) {
@@ -7332,54 +7489,50 @@ class NetClient {
         const path = this.toPath(topic);
         if (serialized === '' || serialized == null) {
             this.own.delete(path);
-            void this.database.ref(path).remove().catch(this.reportError);
+            void this.database.ref(path).remove().catch(error => this.report(error));
             return;
         }
         let value;
-        try {
-            value = JSON.parse(serialized);
-        }
-        catch {
-            value = serialized;
-        }
+        try { value = JSON.parse(serialized); }
+        catch { value = serialized; }
         if (value && typeof value === 'object')
             value = { ...value, au: this.getUid() };
         if (value && typeof value === 'object' && value.bye) {
             this.own.delete(path);
-            void this.database.ref(path).set(value).catch(this.reportError);
+            void this.database.ref(path).set(value).catch(error => this.report(error));
             setTimeout(() => {
-                void this.database.ref(path).remove().catch(this.reportError);
+                void this.database.ref(path).remove().catch(error => this.report(error));
             }, this.byeMs);
             return;
         }
         if (topic.startsWith('mlparena7/srv/') || (topic.startsWith('mlparena7/g/') && topic.includes('/p/'))) {
             this.own.set(path, value);
-            this.arm(path);
+            if (this.up)
+                void this.writeOwned(path);
+            // While offline, retain only the latest presence. armAll() re-registers
+            // onDisconnect first and then publishes this latest value on reconnect.
+            return;
         }
-        void this.database.ref(path).set(value).catch(this.reportError);
+        void this.database.ref(path).set(value).catch(error => this.report(error));
     }
     end() {
         if (this.dead)
             return;
         this.dead = true;
+        this.up = false;
+        this.connectionGeneration += 1;
         clearInterval(this.keep);
         for (const unsubscribe of this.subs.values()) {
-            try {
-                unsubscribe();
-            }
+            try { unsubscribe(); }
             catch { /* best-effort Firebase listener cleanup */ }
         }
         this.subs.clear();
         if (this.connectedRef && this.connectedCallback) {
-            try {
-                this.connectedRef.off('value', this.connectedCallback);
-            }
+            try { this.connectedRef.off('value', this.connectedCallback); }
             catch { /* best effort */ }
         }
         for (const path of this.armed) {
-            try {
-                void this.database.ref(path).onDisconnect().cancel().catch(() => undefined);
-            }
+            try { void this.database.ref(path).onDisconnect().cancel().catch(() => undefined); }
             catch { /* best effort */ }
         }
         this.armed.clear();
@@ -8587,65 +8740,98 @@ function createScreenRouter(options) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createStealFlightAnimator = createStealFlightAnimator;
 const steal_identity_js_1 = require("../engine/steal-identity.js");
-/** Performs the visual card flight using immutable card identity, never a stale slot index. */
+/** Runs a best-effort visual flight while committing one deterministic board transition. */
 function createStealFlightAnimator(deps) {
     return async function animate(victimSide, target, stableMembers) {
         const thiefSide = victimSide === 'me' ? 'opp' : 'me';
-        const liveLayout = deps.layout(victimSide);
-        const overlay = deps.overlay();
-        const sourceGroups = overlay?.side === victimSide && Array.isArray(overlay.st) ? overlay.st : liveLayout.st;
-        const sourceCards = overlay?.side === victimSide && Array.isArray(overlay.s) ? overlay.s : liveLayout.s;
-        const sourceMembers = stableMembers ?? target.members ?? [];
-        const sourceIndex = (0, steal_identity_js_1.findExactSourceSlot)(sourceGroups, sourceMembers);
-        const card = sourceIndex >= 0 ? sourceCards[sourceIndex] : null;
-        // If the card joined a combo after selection, the whole current combo flies.
-        const renderedMembers = (sourceIndex >= 0 ? sourceGroups[sourceIndex] ?? sourceMembers : sourceMembers).map(member => ({ ...member }));
-        deps.setFlying(thiefSide);
-        deps.drawSlots();
-        const sourceElement = card == null ? null : deps.findRenderedCard(victimSide, renderedMembers, card);
-        if (sourceElement)
-            sourceElement.style.visibility = 'hidden';
-        const targetSlots = Array.from(deps.board(thiefSide).querySelectorAll('.slot'));
-        const destinationElement = targetSlots[targetSlots.length - 1] ?? null;
-        if (!sourceElement || !destinationElement || card == null) {
-            deps.setFlying(null);
-            deps.setStarted(victimSide, false);
-            deps.setCompleted(victimSide, false);
-            deps.clearOverlay();
-            deps.drawSlots();
-            throw new Error('Не удалось найти DOM-слот источника или получателя для анимации кражи');
-        }
-        const sourceRect = sourceElement.getBoundingClientRect();
-        const destinationRect = destinationElement.getBoundingClientRect();
-        const ghost = deps.createElement('div');
-        ghost.className = `slot f ghost r${deps.rarityClass(card)}`;
-        ghost.style.cssText = `position:fixed;left:${sourceRect.left}px;top:${sourceRect.top}px;width:${sourceRect.width}px;height:${sourceRect.height}px;margin:0;z-index:80;pointer-events:none;overflow:hidden`;
-        const presentation = deps.flightPresentation(card, thiefSide, [...(target.members ?? [])]);
-        ghost.innerHTML = presentation.markup;
-        deps.appendGhost(ghost);
-        const dx = destinationRect.left - sourceRect.left;
-        const dy = destinationRect.top - sourceRect.top;
-        deps.setWheelLabel(`🦹 ${deps.characterName(card)} переходит к ${thiefSide === 'me' ? 'тебе' : 'сопернику'}`);
+        let sourceElement = null;
+        let ghost = null;
+        let transferResolved = false;
+        let cancelled = false;
+        const report = (error) => {
+            try { deps.reportError?.(error); }
+            catch { /* diagnostics must not interrupt cleanup */ }
+        };
+        const safe = (action) => {
+            try { action(); }
+            catch (error) { report(error); }
+        };
         try {
+            const liveLayout = deps.layout(victimSide);
+            const overlay = deps.overlay();
+            const sourceGroups = overlay?.side === victimSide && Array.isArray(overlay.st) ? overlay.st : liveLayout.st;
+            const sourceCards = overlay?.side === victimSide && Array.isArray(overlay.s) ? overlay.s : liveLayout.s;
+            const sourceMembers = stableMembers ?? target.members ?? [];
+            const sourceIndex = (0, steal_identity_js_1.findExactSourceSlot)(sourceGroups, sourceMembers);
+            const card = sourceIndex >= 0 ? sourceCards[sourceIndex] : null;
+            if (sourceIndex < 0 || card == null) {
+                cancelled = true;
+                return false;
+            }
+            const renderedMembers = (sourceGroups[sourceIndex] ?? sourceMembers).map(member => ({ ...member }));
+            deps.setFlying(thiefSide);
+            deps.drawSlots();
+            sourceElement = deps.findRenderedCard(victimSide, renderedMembers, card);
+            const targetBoard = deps.board(thiefSide);
+            const targetSlots = Array.from(targetBoard.querySelectorAll('.slot'));
+            const destinationElement = targetSlots[targetSlots.length - 1] ?? null;
+            if (!sourceElement || !destinationElement) {
+                cancelled = true;
+                return false;
+            }
+            // From this point the exact source and recipient slot are known. If
+            // the animation API fails, commit the transfer and render the card at
+            // its destination rather than leaving a hidden, half-moved source.
+            transferResolved = true;
+            sourceElement.style.visibility = 'hidden';
+            const sourceRect = sourceElement.getBoundingClientRect();
+            const destinationRect = destinationElement.getBoundingClientRect();
+            ghost = deps.createElement('div');
+            ghost.className = `slot f ghost r${deps.rarityClass(card)}`;
+            ghost.style.cssText = `position:fixed;left:${sourceRect.left}px;top:${sourceRect.top}px;width:${sourceRect.width}px;height:${sourceRect.height}px;margin:0;z-index:80;pointer-events:none;overflow:hidden`;
+            const presentation = deps.flightPresentation(card, thiefSide, [...(target.members ?? [])]);
+            ghost.innerHTML = presentation.markup;
+            deps.appendGhost(ghost);
+            const dx = destinationRect.left - sourceRect.left;
+            const dy = destinationRect.top - sourceRect.top;
+            deps.setWheelLabel(`🦹 ${deps.characterName(card)} переходит к ${thiefSide === 'me' ? 'тебе' : 'сопернику'}`);
             const animation = ghost.animate([
                 { transform: 'translate(0px,0px) scale(1)', offset: 0 },
                 { transform: `translate(${dx * 0.5}px,${dy * 0.5 - 46}px) scale(1.12)`, offset: 0.5 },
                 { transform: `translate(${dx}px,${dy}px) scale(1)`, offset: 1 },
             ], { duration: 1000, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'forwards' });
-            await animation.finished.catch(() => undefined);
+            try { await animation.finished; }
+            catch (error) { report(error); /* cancelled animation still settles to the destination */ }
+            return true;
+        }
+        catch (error) {
+            report(error);
+            if (!transferResolved)
+                cancelled = true;
+            return false;
         }
         finally {
-            ghost.remove();
-            deps.setArrivalAt(thiefSide, deps.getShownCount(thiefSide));
-            deps.setFlying(null);
-            deps.setStarted(victimSide, false);
-            deps.setCompleted(victimSide, true);
-            // Keep old slot hints through the flight. After this promise resolves,
-            // the steal controller clears this side's hints and the board view
-            // animates the canonical compacted layout from the old card positions.
-            deps.setShiftAfterSteal(victimSide);
-            deps.setShiftLockSide(victimSide);
-            deps.saveSnapshot();
+            safe(() => ghost?.remove());
+            safe(() => { if (sourceElement) sourceElement.style.visibility = ''; });
+            if (transferResolved) {
+                safe(() => deps.setArrivalAt(thiefSide, deps.getShownCount(thiefSide)));
+            }
+            else if (cancelled) {
+                safe(() => deps.cancelTarget?.(victimSide));
+            }
+            safe(() => deps.setFlying(null));
+            safe(() => deps.setStarted(victimSide, false));
+            safe(() => deps.setCompleted(victimSide, true));
+            safe(() => deps.clearOverlay());
+            if (transferResolved) {
+                safe(() => deps.setShiftAfterSteal(victimSide));
+                safe(() => deps.setShiftLockSide(victimSide));
+            }
+            else {
+                safe(() => deps.setShiftLockSide(null));
+            }
+            safe(() => deps.saveSnapshot());
+            safe(() => deps.drawSlots());
         }
     };
 }
