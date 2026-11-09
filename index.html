@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" data-version="31.0.0"><head><meta charset="utf-8">
+<html lang="ru" data-version="35.0.0"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Пони-Арена</title>
 <style>
@@ -2874,6 +2874,12 @@ function createStealController(deps) {
             await deps.fly(victim, target, frozenTarget.members);
             check();
             deps.setOverlay(null);
+            // The flight is now complete. Drop stale physical slot pins only for
+            // the victim: the next board render rebuilds the canonical compacted
+            // order, while the view controller FLIP-animates each surviving card
+            // from its previous slot. Doing this earlier would move cards during
+            // the theft flight and could invalidate the selected visual target.
+            deps.compactAfterTheft?.(victim);
             // An incoming card can complete a combo immediately after landing.
             const thiefAfter = deps.layout(thief, deps.displayEntries(thief));
             // An incoming card may arrive before later revealed cards. The last
@@ -3538,6 +3544,9 @@ const stealController = (0, steal_controller_js_1.createStealController)({
     setFlying: T => { STL.flying = T; },
     displayEntries: S => seqDisp(S),
     layout: (S, entries) => laySideX2(S, entries),
+    // After the flight, rebuilding hints from the next render compacts the board
+    // without changing card identity or the exact target frozen for the theft.
+    compactAfterTheft: side => boardState.clearSlotHints(side),
     setOverlay: overlay => { OV = overlay ? { side: overlay.side, s: overlay.layout.s, st: overlay.layout.st, steal: 1 } : null; },
     drawSlots,
     fly: (V, target, members) => stealFly(V, target, members),
@@ -5052,8 +5061,9 @@ function gameModeLabel(value) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RELEASE_NOTES = exports.RELEASE_VERSION = void 0;
-exports.RELEASE_VERSION = 34;
+exports.RELEASE_VERSION = 35;
 exports.RELEASE_NOTES = [
+    { version: 35, description: 'После завершения перелёта похищенной карты поле пострадавшего игрока уплотняется: карты ниже удалённой плавно сдвигаются вверх через FLIP-анимацию, пустая ячейка больше не остаётся в середине или в конце последовательности. Привязки слотов пересоздаются только после полёта и только для затронутой стороны; выбор цели остаётся привязан к immutable ID.' },
     { version: 34, description: 'Исправлена повторная кража на поле 5×5: уход карты оставляет пустой физический слот, не сдвигая стоящие после неё карты. Первая украденная карта закрепляется в шестом слоте и не телепортируется вверх во время встречной кражи. Визуальная вместимость поля отделена от количества карт, нужного для завершения раунда; входящая карта сохраняет свою привязку даже при отдельном рендере в нижнем слоте.' },
     { version: 31, description: 'Исправлена загрузка аккаунта: профиль запрашивается сразу после входа, отдельно от проверки активной вкладки. Зависание проверки сессии больше не блокирует профиль; добавлены тайм-аут ожидания, отдельная диагностика ошибок чтения и защита от устаревших блокировок при выходе.' },
     { version: 30, description: 'Исправлена инициализация входа в браузерах с ограниченным хранилищем: если постоянная Firebase-сессия недоступна, приложение пробует сессионное хранение и память и всё равно подключает обработчик состояния авторизации. Улучшены сообщения об ошибках привязки профиля и отказах Realtime Database.' },
@@ -8630,8 +8640,9 @@ function createStealFlightAnimator(deps) {
             deps.setFlying(null);
             deps.setStarted(victimSide, false);
             deps.setCompleted(victimSide, true);
-            // Do not clear slot hints here: every surviving card, including an
-            // earlier stolen card in the reserved slot, must keep its physical place.
+            // Keep old slot hints through the flight. After this promise resolves,
+            // the steal controller clears this side's hints and the board view
+            // animates the canonical compacted layout from the old card positions.
             deps.setShiftAfterSteal(victimSide);
             deps.setShiftLockSide(victimSide);
             deps.saveSnapshot();
