@@ -369,6 +369,27 @@ textarea.in{resize:none;font-family:inherit}
 @media(max-width:430px){#bpass{padding:11px 9px}#bpass .bp-title{font-size:14px}.bg-cell img{height:62px}}
 </style>
 
+<style id="mutual-steal-entry-animations">
+@keyframes cardEnter {
+  0% { opacity: 0; transform: scale(.6) translateY(20px); }
+  70% { opacity: 1; transform: scale(1.05) translateY(-5px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes slotFadeIn {
+  from { opacity: 0; transform: scale(.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+.slot.f.anim-new {
+  animation: cardEnter .45s cubic-bezier(.2,.8,.2,1) both;
+}
+.slot.anim-empty {
+  animation: slotFadeIn .32s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .slot.f.anim-new, .slot.anim-empty { animation: none !important; }
+}
+</style>
+
 </head><body>
 <div id="loader"><div class="lg">⚔️</div><div class="lt">Пони-Арена</div><div class="bar"><i></i></div><div id="lmsg">Загрузка…</div></div>
 <button id="mail" class="off" aria-label="Уведомления">✉️<span id="mailN"></span></button>
@@ -2897,6 +2918,11 @@ function createStealController(deps) {
             deps.setOverlay({ side: victim, layout: victimBefore, stealing: true });
             deps.drawSlots();
             const flightCompleted = await deps.fly(victim, target, frozenTarget.members);
+            // The flight animator also clears this in its finally block. Repeat
+            // the reset at the transaction boundary so a future animator or an
+            // early-return path cannot leave a phantom incoming slot reserved.
+            if (deps.getFlying() === thief)
+                deps.setFlying(null);
             check();
             if (flightCompleted !== true) {
                 // The animator has already cancelled the stale target and run its
@@ -3995,8 +4021,19 @@ const toPath = (t) => NET_ROOT + '/' + t.slice(P.length);
 const errorDetails = (e) => { const value = e && typeof e === 'object' ? e : {}; return { code: typeof value.code === 'string' ? value.code : '', message: typeof value.message === 'string' ? value.message : String(e ?? '') }; };
 const accountSessionError = (e) => { const detail = errorDetails(e); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
     return 'Firebase выполнил вход, но Realtime Database запретила доступ к профилю или сессии. Проверь и опубликуй firebase_rules.json в том же проекте Firebase.'; return 'Вход выполнен, но профиль не удалось подключить: ' + (0, account_identity_js_1.authErrorMessage)(e); };
-const netErr = (e) => { const detail = errorDetails(e); console.warn('Ошибка Firebase Realtime Database:', detail.code || 'unknown', detail.message); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
-    err('Нет доступа к данным аккаунта/сервера: проверь опубликованные правила Firebase (firebase_rules.json)'); };
+const netErr = (e) => {
+    const detail = errorDetails(e);
+    const denied = detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message);
+    // NetClient reports both critical data failures and best-effort background
+    // operations (presence refresh, onDisconnect cleanup, room discovery).
+    // A denial from one such operation does not prove that account access is lost.
+    // Profile access has its own dedicated handler below (onProfileError).
+    if (denied) {
+        console.warn('Firebase RTDB отклонила отдельную фоновую операцию; доступ к аккаунту проверяется отдельно:', detail.code, detail.message);
+        return;
+    }
+    console.warn('Ошибка Firebase Realtime Database:', detail.code || 'unknown', detail.message);
+};
 const NetClient = ApplicationNetClient;
 const connectionFactory = (0, connection_factory_js_1.createConnectionFactory)({
     initialize: fInit,
@@ -4590,8 +4627,10 @@ const accountSessionController = (0, account_session_controller_js_1.createAccou
         alert('Этот аккаунт уже используется в другой вкладке или на другом устройстве. Одновременно играть можно только с одного устройства.');
         await requireAuth().signOut();
     },
-    reportError: error => { console.warn('account stream:', error); const detail = errorDetails(error); if (detail.code === 'PERMISSION_DENIED' || /permission_denied|permission denied/i.test(detail.message))
-        err(accountSessionError(error)); },
+    // These are secondary streams (requests, invites, friends, presence and the
+    // optional one-tab lease). Their denial must not be reported as a broken login.
+    // The critical users/{uid} profile read is handled explicitly by onProfileError.
+    reportError: error => { console.warn('Дополнительный поток аккаунта Firebase:', error); },
 });
 async function onUser(u) { return accountSessionController.attach(u); }
 function card(u, t1, f1, t2, f2, online, openUid) {
@@ -8149,8 +8188,10 @@ exports.buildBoardSlotMarkup = buildBoardSlotMarkup;
  * are supplied by the game model.
  */
 function buildBoardSlotMarkup(input) {
-    const { side, slotCount, baseCapacity, layout, pending, flying, previous } = input;
+    const { side, slotCount, baseCapacity, layout, pending, flying, previous = {} } = input;
     const now = {};
+    const hasPreviousRender = Object.keys(previous).length > 0;
+    const hasPreviousKey = (key) => Object.prototype.hasOwnProperty.call(previous, key);
     const sixthEnter = (slot) => slot === input.sixthSlotIndex && !input.sixthSlotWasVisible ? ' sixth-slot-enter' : '';
     const markup = Array.from({ length: Math.max(0, slotCount) }, (_, index) => {
         const enterClass = sixthEnter(index);
@@ -8167,7 +8208,7 @@ function buildBoardSlotMarkup(input) {
             const member = { c: card, t: item.t || `pending${index - baseCapacity}`, b: item.b || 0 };
             const key = input.keyFor(side, [member], index, card);
             now[key] = '';
-            const state = previous[key] !== undefined ? ' still' : ' land';
+            const state = hasPreviousKey(key) ? ' still' : ' land';
             const villain = input.isVillainPending(card) && input.isVillainComboPending(card) ? ' vil' : '';
             return `<div data-i="${index + 1}" data-key="${key}" class="slot f r${input.rarityClass(card)}${state}${villain}${enterClass}">${input.renderPendingCard(card, side, previewSlot, item.b || 0)}</div>`;
         }
@@ -8177,14 +8218,20 @@ function buildBoardSlotMarkup(input) {
             const key = input.keyFor(side, members, index, card);
             const visual = input.getCardVisualState(side, index, card, members);
             const was = previous[key];
-            const still = was !== undefined && (was === visual.animationState || visual.animationState === '');
+            const isNew = !hasPreviousKey(key);
+            const still = !isNew && (was === visual.animationState || visual.animationState === '');
+            const hasPriorityAnimation = !!visual.animationState || /\b(?:fz|fzn|vil)\b/.test(visual.extraClass || '');
+            const newAnimation = isNew && !hasPriorityAnimation ? ' anim-new' : '';
             now[key] = visual.animationState;
-            return `<div data-i="${index + 1}" data-key="${key}" class="slot f r${input.rarityClass(card)}${still ? ' still' : ''}${visual.dead ? ' dead' : ''}${card < 0 ? ` fzc k${-card}` : ''}${visual.extraClass || ''}${enterClass}">${input.renderCard(side, index)}</div>`;
+            return `<div data-i="${index + 1}" data-key="${key}" class="slot f r${input.rarityClass(card)}${still ? ' still' : ''}${newAnimation}${visual.dead ? ' dead' : ''}${card < 0 ? ` fzc k${-card}` : ''}${visual.extraClass || ''}${enterClass}">${input.renderCard(side, index)}</div>`;
         }
         const empty = input.getEmptySlotState(side, index);
         const dead = empty.hit && empty.blocked ? ' dead' : '';
         const status = empty.hit ? `<div class="bd">${empty.icon || ''} ${empty.blocked ? 'выбыл' : empty.label || ''}</div>` : '';
-        return `<div class="slot${dead}${enterClass}" data-i="${index + 1}" data-key="${side}|ph|${index}"><div class="e" style="font-size:26px">?</div>карта ${index + 1}${status}</div>`;
+        const placeholderKey = `${side}|ph|${index}`;
+        const animateEmpty = hasPreviousRender && !hasPreviousKey(placeholderKey) ? ' anim-empty' : '';
+        now[placeholderKey] = '';
+        return `<div class="slot${dead}${animateEmpty}${enterClass}" data-i="${index + 1}" data-key="${placeholderKey}"><div class="e" style="font-size:26px">?</div>карта ${index + 1}${status}</div>`;
     }).join('');
     return { markup, keys: now };
 }
@@ -8999,4 +9046,6 @@ function __poniRequire(id) {
 }
 __poniRequire('application-bootstrap.js');
 </script>
+
+
 </body></html>
