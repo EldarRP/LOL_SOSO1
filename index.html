@@ -3,10 +3,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Пони-Арена</title>
 <style>
-:root{--bg:#0e1116;--card:#171c24;--tx:#e8ecf2;--mut:#8793a5;--ac:#f2a900;--ac2:#e8590c;--ln:#2a323f;--ok:#3ecf8e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root{--bg:#0e1116;--card:#171c24;--tx:#e8ecf2;--mut:#8793a5;--ac:#f2a900;--ac2:#e8590c;--ln:#2a323f;--ok:#3ecf8e;box-sizing:border-box}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1116;--card:#171c24;--tx:#e8ecf2;--mut:#8793a5;--ln:#2a323f}}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-body{min-height:100vh;padding:14px;max-width:480px;margin:0 auto}
+html.modal-open,body.modal-open{overflow:hidden;overscroll-behavior:none}
+body{min-height:100vh;min-height:100svh;padding:calc(14px + env(safe-area-inset-top,0px)) 14px calc(14px + env(safe-area-inset-bottom,0px));max-width:480px;margin:0 auto}
 h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;letter-spacing:4px;background:linear-gradient(90deg,var(--ac),var(--ac2));-webkit-background-clip:text;background-clip:text;color:transparent}
 .sub{text-align:center;color:var(--mut);font-size:13px;margin-bottom:14px}
 .btn{display:block;width:100%;padding:14px;border:0;border-radius:6px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#14110a;background:linear-gradient(90deg,var(--ac),var(--ac2));cursor:pointer;margin-top:10px}
@@ -22,7 +23,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .pl .av,.card-av{cursor:pointer}
 #uprof{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:90;padding:0 14px;overflow:auto}
 .pl.turn{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac) inset}
-.board{display:grid;grid-template-columns:80px minmax(0,1fr) 80px;gap:8px;align-items:start}
+.board{display:grid;grid-template-columns:80px minmax(0,1fr) 80px;gap:8px;align-items:start;min-width:0}
 .col{display:flex;flex-direction:column;gap:8px}
 .slot{height:104px;border:2px dashed var(--ln);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;text-align:center;padding:4px;color:var(--mut);background:var(--card)}
 .slot.f{border-style:solid;color:var(--tx);animation:pop .5s}
@@ -50,7 +51,9 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .win{font-size:20px;font-weight:800;text-align:center;margin:8px 0;color:var(--ok)}
 .dots:after{content:"";animation:d 1.2s steps(4) infinite}@keyframes d{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 .pw{font-size:12px;color:var(--mut);text-align:center;margin-top:6px}
-.wheelBox{position:relative;width:100%;aspect-ratio:1;padding-top:10px}
+.wheelBox{position:relative;width:100%;aspect-ratio:1;padding:0;min-width:0}
+#roul.wheelBox{width:min(100%,240px);height:auto;aspect-ratio:1;margin:0 auto;overflow:hidden}
+#roul canvas{display:block;width:100%;height:100%}
 .wheelBox canvas{width:100%;height:100%;border-radius:50%;box-shadow:0 0 0 3px var(--ac2),0 0 18px #0009;will-change:transform}
 .pt{position:absolute;top:-2px;left:50%;margin-left:-9px;border:9px solid transparent;border-top:16px solid var(--ac);z-index:3}
 .wlab{font-size:12px;text-align:center;min-height:34px;margin-top:8px;font-weight:700}
@@ -67,7 +70,9 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .slot{height:132px;gap:2px}
 .ph{position:relative;border-radius:50%;overflow:hidden;background:var(--bg);border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;font-size:26px;flex:none}
 .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--bg)}
-.st{font-size:10px;color:var(--tx);white-space:nowrap}.st u{text-decoration:none;color:#ff6b6b;font-weight:800}.st s{text-decoration:none;color:var(--ok);font-weight:800}
+.slot b,.st{display:block;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot b{font-size:12px}
+.st{font-size:10px;color:var(--tx)}.st u{text-decoration:none;color:#ff6b6b;font-weight:800}.st s{text-decoration:none;color:var(--ok);font-weight:800}
 .bd{font-size:10px;color:#ff6b6b;font-weight:700;line-height:1.1}
 .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.dgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .dbtn{background:var(--bg);color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:8px 4px;font-size:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
@@ -76,14 +81,14 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 
 .coin.go{animation:flip 1.6s ease-in-out}
 .stg{transition:opacity .9s ease,transform .9s ease}
-.stg.off{opacity:0;pointer-events:none}
+.stg.off{display:none!important}
 #cMe.off{transform:translateX(-30px)}#cOpp.off{transform:translateX(30px)}
 .cen{display:grid;align-items:center;justify-items:stretch;width:100%}
 .cen>.stg{grid-area:1/1;min-width:0}
 #coinBox{text-align:center;transition:opacity .6s ease}
 .wt{text-align:center;color:var(--mut);font-size:13px;padding:10px}
 #spin{transition:opacity .6s}
-#spin.hide{display:block!important;opacity:0;pointer-events:none}
+#spin.hide{display:none!important}
 #msg{transition:opacity .25s}
 .cen .dbtn{padding:5px 2px;font-size:11px}.cen .dbtn span{font-size:17px}.cen .dbtn small{font-size:9px}
 .cen .btn{padding:10px;font-size:13px;margin-top:8px}
@@ -106,7 +111,7 @@ h1{font-size:22px;margin:4px 0 2px;text-align:center;text-transform:uppercase;le
 .tabon{border-color:var(--ac)!important;box-shadow:0 0 0 2px var(--ac) inset}
 textarea.in{resize:none;font-family:inherit}
 .stat3{display:flex;justify-content:space-around;margin:10px 0}.stat3 b{font-size:24px}
-#mail{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);right:12px;z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);font-size:22px;cursor:pointer;padding:0}
+#mail{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);right:max(12px,calc(50vw - 228px));z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);font-size:22px;cursor:pointer;padding:0}
 #mailN{position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;border-radius:10px;background:#ff3b3b;color:#fff;font-size:11px;font-weight:800;line-height:19px;display:none;padding:0 4px}
 #mail.ring{animation:ring 1.4s ease-in-out infinite}
 @keyframes ring{0%,50%,100%{transform:rotate(0)}10%,30%{transform:rotate(-14deg)}20%,40%{transform:rotate(14deg)}}
@@ -126,11 +131,11 @@ textarea.in{resize:none;font-family:inherit}
 .scrOut{opacity:0!important;transform:translateY(-8px);transition:opacity .18s ease,transform .18s ease}
 #lobby.busy{pointer-events:none}
 #mail{transition:opacity .4s ease,transform .4s ease}
-#mail.off{opacity:0;pointer-events:none;transform:scale(.6)}
-#book{position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);right:12px;z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);font-size:22px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
-#book.off{opacity:0;pointer-events:none;transform:scale(.6)}
-#releaseBtn{position:fixed;top:calc(env(safe-area-inset-top,0px) + 116px);right:12px;z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);color:var(--tx);font-size:21px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
-#releaseBtn.off{opacity:0;pointer-events:none;transform:scale(.6)}
+#mail.off{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.6)}
+#book{position:fixed;top:calc(env(safe-area-inset-top,0px) + 64px);right:max(12px,calc(50vw - 228px));z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);font-size:22px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
+#book.off{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.6)}
+#releaseBtn{position:fixed;top:calc(env(safe-area-inset-top,0px) + 116px);right:max(12px,calc(50vw - 228px));z-index:50;width:46px;height:46px;border-radius:50%;border:1px solid var(--ln);background:var(--card);color:var(--tx);font-size:21px;cursor:pointer;padding:0;transition:opacity .4s ease,transform .4s ease}
+#releaseBtn.off{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.6)}
 #bookP{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto}
 .cb{text-align:left;margin-top:10px;padding:10px;border:1px solid var(--ln);border-radius:6px;background:var(--bg)}
 .cb h3{margin:0 0 6px;font-size:15px;color:var(--ac)}
@@ -152,6 +157,7 @@ textarea.in{resize:none;font-family:inherit}
 .pl{transition:border-color .3s ease,box-shadow .3s ease}
 .win{animation:pop .6s ease}
 @media(prefers-reduced-motion:reduce){.scrIn,.srv,.win{animation:none}}
+@media(max-width:380px){.board{grid-template-columns:64px minmax(0,1fr) 64px;gap:6px}.slot{font-size:10px}.water .fg{font-size:36px}.vs{font-size:20px}#roul.wheelBox{max-width:100%}}
 #loader{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .55s ease;text-align:center;padding:20px}
 #loader.out{opacity:0;pointer-events:none}
 #loader .lg{font-size:68px;animation:bob 1.3s ease-in-out infinite}
@@ -368,8 +374,8 @@ textarea.in{resize:none;font-family:inherit}
 <button id="mail" class="off" aria-label="Уведомления">✉️<span id="mailN"></span></button>
 <button id="book" class="off" aria-label="Книга комбо">📖</button>
 <button id="releaseBtn" class="off" aria-label="Обновления">📰</button>
-<div id="duelPick" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><b id="dpTitle">Вызвать друга</b><div style="margin:10px 0 4px;font-weight:700">Режим игры</div><div id="modeDp"></div><button class="btn" id="dpGo">⚔ Вызвать</button><button class="btn sec" id="dpCancel">Отмена</button></div></div>
-<div id="notif" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
+<div id="duelPick" class="hide" role="dialog" aria-modal="true" tabindex="-1" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;padding:0 14px;overflow:auto"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><b id="dpTitle">Вызвать друга</b><div style="margin:10px 0 4px;font-weight:700">Режим игры</div><div id="modeDp"></div><button class="btn" id="dpGo">⚔ Вызвать</button><button class="btn sec" id="dpCancel">Отмена</button></div></div>
+<div id="notif" class="hide" role="dialog" aria-modal="true" tabindex="-1"><div class="panel" style="max-width:440px;margin:70px auto 20px;text-align:left"><div style="display:flex;justify-content:space-between;align-items:center"><b>Уведомления</b><button class="dbtn" id="nClose" style="padding:6px 12px">✕</button></div><div id="nList"></div></div></div>
 <div id="releaseBoard" class="release-overlay hide" role="dialog" aria-modal="true" aria-labelledby="releaseTitle">
   <div class="panel release-card">
     <div class="release-head">
@@ -379,7 +385,7 @@ textarea.in{resize:none;font-family:inherit}
     <div class="release-table-wrap"><table class="release-table"><thead><tr><th>Версия</th><th>Что обновилось</th></tr></thead><tbody id="releaseRows"></tbody></table></div>
   </div>
 </div>
-<div id="uprof" class="hide"><div class="panel" style="max-width:440px;margin:70px auto 20px">
+<div id="uprof" class="hide" role="dialog" aria-modal="true" tabindex="-1"><div class="panel" style="max-width:440px;margin:70px auto 20px">
   <div style="display:flex;justify-content:center"><div id="upAv"></div></div>
   <div id="upNick" style="font-weight:800;font-size:20px;margin-top:8px"></div>
   <div id="upOn" class="pw"></div>
@@ -389,7 +395,7 @@ textarea.in{resize:none;font-family:inherit}
   <button class="btn hide" id="upAdd">Добавить в друзья</button>
   <button class="btn sec" id="upClose">Закрыть</button>
 </div></div>
-<div id="bookP" class="hide"><div class="panel bk">
+<div id="bookP" class="hide" role="dialog" aria-modal="true" tabindex="-1"><div class="panel bk">
   <div class="bkh"><b>📖 Книга комбо</b><button class="dbtn" id="bClose" style="padding:6px 12px">✕</button></div>
   <div class="cb">
     <h3>Комбо 1 — Злодейский союз</h3>
@@ -544,7 +550,7 @@ textarea.in{resize:none;font-family:inherit}
   <button class="btn sec hide" id="toMenu">Выйти в меню</button>
 </div>
 
-<div id="rlOv" class="hide"><div class="rl-card"><div class="rl-title" id="rlTitle"></div><div class="rl-wheel"><canvas id="rlCanvas"></canvas><div class="rl-ptr"></div></div><div class="rl-res" id="rlRes"></div><button class="btn hide" id="rlOk">Забрать</button></div></div>
+<div id="rlOv" class="hide" role="dialog" aria-modal="true" tabindex="-1"><div class="rl-card"><div class="rl-title" id="rlTitle"></div><div class="rl-wheel"><canvas id="rlCanvas"></canvas><div class="rl-ptr"></div></div><div class="rl-res" id="rlRes"></div><button class="btn hide" id="rlOk">Забрать</button></div></div>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
@@ -2865,8 +2871,9 @@ function createStealController(deps) {
             const thief = otherSide(victim);
             const thiefBefore = deps.layout(thief, deps.displayEntries(thief));
             const victimBefore = deps.layout(victim, deps.displayEntries(victim));
-            const frozenTarget = deps.getFrozenTarget(victim) ?? (0, steal_identity_js_1.freezeStealTarget)(target);
-            if (!deps.getFrozenTarget(victim))
+            const savedFrozenTarget = deps.getFrozenTarget(victim);
+            const frozenTarget = savedFrozenTarget ?? (0, steal_identity_js_1.freezeStealTarget)(target);
+            if (!savedFrozenTarget)
                 deps.setFrozenTarget(victim, frozenTarget);
             // This is the critical safety check: no old slot/index fallback is allowed.
             // The selected source tokens must still belong to one unambiguous live entity.
@@ -2880,6 +2887,7 @@ function createStealController(deps) {
                 deps.setFlying(null);
                 deps.setOverlay(null);
                 deps.setShiftLockSide(null);
+                deps.onFlightCancelled?.(victim, 'stale-target');
                 deps.drawSlots();
                 return false;
             }
@@ -2888,8 +2896,20 @@ function createStealController(deps) {
             deps.setFlying(thief);
             deps.setOverlay({ side: victim, layout: victimBefore, stealing: true });
             deps.drawSlots();
-            await deps.fly(victim, target, frozenTarget.members);
+            const flightCompleted = await deps.fly(victim, target, frozenTarget.members);
             check();
+            if (flightCompleted !== true) {
+                // The animator has already cancelled the stale target and run its
+                // own cleanup. Do not process fusions or report a successful theft
+                // when no card actually reached the destination.
+                deps.setFlying(null);
+                deps.setStarted(victim, false);
+                deps.setOverlay(null);
+                deps.setShiftLockSide(null);
+                deps.onFlightCancelled?.(victim, 'flight-not-committed');
+                deps.drawSlots();
+                return false;
+            }
             deps.setOverlay(null);
             // The flight is now complete. Drop stale physical slot pins only for
             // the victim: the next board render rebuilds the canonical compacted
@@ -3604,6 +3624,11 @@ const stealController = (0, steal_controller_js_1.createStealController)({
     setStarted: (V, value) => { STL.started[V] = value; },
     setCompleted: (V, value) => { STL.completed[V] = value; },
     setFlying: T => { STL.flying = T; },
+    onFlightCancelled: (_victim, reason) => {
+        $('wlab').textContent = reason === 'stale-target'
+            ? '⚠ Кража отменена: выбранная карта уже изменилась'
+            : '⚠ Кража отменена: карту не удалось перенести';
+    },
     displayEntries: S => seqDisp(S),
     layout: (S, entries) => laySideX2(S, entries),
     // After the flight, rebuilding hints from the next render compacts the board
@@ -3937,12 +3962,13 @@ const err = (t) => { const message = t || ''; $('err').textContent = message; co
     feedback.dataset.kind = message ? 'error' : '';
 } };
 const hs = connection_status_js_1.hashRoomPassword;
+let me = null;
 let scr = '';
 const screenRouter = (0, screen_router_js_1.createScreenRouter)({
     screenIds: ['auth', 'home', 'profile', 'friends', 'menu', 'create', 'browse', 'waitBox', 'bpass'],
     getElement: id => $(id),
     clearError: () => err(''),
-    onNavigate: id => { scr = id; },
+    onNavigate: id => { scr = id; updMail(); },
     transitionMs: 190,
 });
 const pop = (el) => screenRouter.pop(el);
@@ -4398,7 +4424,7 @@ const FIREBASE_CONFIG = {
     projectId: "project-5714166565534580935",
     appId: "1:364446906674:web:95a27f6fd04f8c36d5bf2b"
 };
-let fdb = null, auth = null, me = null, regBusy = false;
+let fdb = null, auth = null, regBusy = false;
 let accountRepository = null, accountAuthController = null;
 function accountRepo() { if (!fdb)
     throw new Error('Firebase database is not initialized'); return accountRepository || (accountRepository = (0, account_repository_js_1.createAccountRepository)(fdb)); }
@@ -4608,7 +4634,7 @@ function closeProf() { publicProfileController.close(); }
 $('upClose').onclick = closeProf;
 $('uprof').onclick = e => { if (e.target === $('uprof'))
     closeProf(); };
-function updMail() { const inG = !$('game').classList.contains('hide') || !!$('game').dataset.s; $('mail').classList.toggle('off', inG || !me); $('book').classList.toggle('off', inG); $('releaseBtn').classList.toggle('off', inG); }
+function updMail() { const inG = !$('game').classList.contains('hide') || !!$('game').dataset.s; const onAuth = scr === 'auth'; $('mail').classList.toggle('off', inG || onAuth || !me); $('book').classList.toggle('off', inG || onAuth); $('releaseBtn').classList.toggle('off', inG || onAuth); }
 const socialScreenController = (0, social_screen_controller_js_1.createSocialScreenController)({
     elements: {
         friends: $('fList'), notifications: $('nList'), mailCount: $('mailN'), mailButton: $('mail'),
@@ -4856,12 +4882,46 @@ else {
     show('home');
     hideLoader();
 }
-function hideLoader() { const l = $('loader'); if (!l || l.classList.contains('out'))
-    return; l.classList.add('out'); setTimeout(() => l.remove(), 650); }
-setTimeout(() => { const m = $('lmsg'); if (m)
+function hideLoader() { const l = document.getElementById('loader'); if (!l || l.classList.contains('out'))
+    return; l.classList.add('out'); setTimeout(() => { if (l.isConnected) l.remove(); }, 650); }
+setTimeout(() => { const m = document.getElementById('lmsg'); if (m)
     m.textContent = 'Медленное соединение… попробуй включить VPN или сменить сеть'; }, 7000);
 setTimeout(() => { if (scr === '')
     show('home'); hideLoader(); }, 16000);
+// Shared keyboard focus trap and background scroll lock for modal overlays.
+const modalIds = ['releaseBoard', 'rlOv', 'uprof', 'notif', 'bookP', 'duelPick'];
+const modalElements = modalIds.map(id => document.getElementById(id)).filter(Boolean);
+let activeModal = null, modalReturnFocus = null;
+const modalFocusableSelector = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function visibleModal() { return modalElements.find(el => !el.classList.contains('hide') && !el.classList.contains('scrOut')) || null; }
+function syncModalState() {
+    const next = visibleModal();
+    document.documentElement.classList.toggle('modal-open', !!next);
+    document.body.classList.toggle('modal-open', !!next);
+    if (next && next !== activeModal) {
+        if (!activeModal) modalReturnFocus = document.activeElement;
+        activeModal = next;
+        const first = Array.from(next.querySelectorAll(modalFocusableSelector)).find(el => el.getClientRects().length);
+        (first || next).focus({ preventScroll: true });
+    } else if (!next && activeModal) {
+        activeModal = null;
+        if (modalReturnFocus && modalReturnFocus.isConnected && typeof modalReturnFocus.focus === 'function') modalReturnFocus.focus({ preventScroll: true });
+        modalReturnFocus = null;
+    }
+}
+const modalObserver = new MutationObserver(syncModalState);
+modalElements.forEach(el => modalObserver.observe(el, { attributes: true, attributeFilter: ['class'] }));
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    const modal = visibleModal();
+    if (!modal) return;
+    const items = Array.from(modal.querySelectorAll(modalFocusableSelector)).filter(el => el.getClientRects().length);
+    if (!items.length) { event.preventDefault(); modal.focus({ preventScroll: true }); return; }
+    const first = items[0], last = items[items.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+}, true);
+syncModalState();
 
 },
 "assets/card-images.js": function(module, exports, require) {
