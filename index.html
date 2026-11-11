@@ -870,6 +870,7 @@ function netWatch(path, cb) {
   r.on('value', f, e => netErr(e));
   return () => r.off('value', f);
 }
+function rejected(path, e) { setErr('База отклонила запись ' + path + ': ' + ((e && e.message) || e)); }
 function netErr(e) {
   if (/permission/i.test(String((e && e.message) || e || ''))) setErr('Нет доступа к серверу: проверь правила базы Firebase');
 }
@@ -889,7 +890,7 @@ class Room {
     ic.on('value', f); this.offs.push(() => ic.off('value', f));
   }
   arm() { if (this.pres && !this.closed) fdb.ref(this.path('p/' + this.me.id)).onDisconnect().remove().catch(() => {}); }
-  push() { if (this.pres && !this.closed) fdb.ref(this.path('p/' + this.me.id)).set(this.pres).catch(() => {}); }
+  push() { if (this.pres && !this.closed) { const p = this.path('p/' + this.me.id); fdb.ref(p).set(this.pres).catch(e => rejected(p, e)); } }
   setMine(patch) {
     this.pres = {...(this.pres || {}), ...patch, id: this.me.id, name: this.me.name, uid: this.me.uid || '', au: myUid()};
     this.push();
@@ -900,7 +901,7 @@ class Room {
     r.on('value', f, e => netErr(e));
     this.offs.push(() => r.off('value', f));
   }
-  publishRaw(sub, value) { if (!this.closed) fdb.ref(this.path(sub)).set(value).catch(() => {}); }
+  publishRaw(sub, value) { if (!this.closed) { const p = this.path(sub); fdb.ref(p).set(value).catch(e => rejected(p, e)); } }
   // Прощание: соперник сразу видит выход, затем запись удаляем
   bye() {
     if (this.closed) return;
@@ -1390,6 +1391,8 @@ function enterGame(opts) {
   G.token++;
   G.room.setMine({cards: [], deb: null, rm: 0, rd: G.round, ready: 1});
   G.room.watch('p', onRoomPresence);
+  const tk = G.token;
+  setTimeout(() => { if (G.token === tk && !G.started) setErr('Соперник не подключился за 25 секунд: проверь подключение и правила базы Firebase'); }, 25000);
   buildDebGrid();
   renderEmptyBoards();
   renderPlayers();
@@ -1925,13 +1928,10 @@ async function tryJoin(sid, ad) {
   try { await netConnect(); } catch (e) { show(ad.duel ? 'Home' : 'Browse'); setErr('Нет связи: ' + e.message); return; }
   const mode = ad.mode === 'real' ? 'real' : 'arcade', size = normSz(ad.sz);
   const room = new Room(sid, meObj()); room.start(); room.setMine({cards: [], deb: null, rm: 0, rd: 0});
-  let accepted = false;
-  const to = setTimeout(() => { if (!accepted) { room.bye(); waitState = null; setErr('Сервер не ответил или уже занят'); show(ad.duel ? 'Home' : 'Browse'); } }, 8000);
-  room.watch('acc', a => {
-    if (a && a.guest === ME.id && !accepted) { accepted = true; clearTimeout(to); waitState = null; startSession(room, {oppId: ad.hostId, mode, size, baseRoom: sid}); }
-  });
+  // Гость входит сразу после заявки: бой начинается, когда оба присутствия помечены ready
   room.publishRaw('join', {id: ME.id, name: ME.name, uid: myUid(), au: myUid()});
-  waitState = {room, sid, server: false};
+  waitState = null;
+  startSession(room, {oppId: ad.hostId, mode, size, baseRoom: sid});
 }
 function startSession(room, o) {
   waitState = null;
