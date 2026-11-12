@@ -1045,13 +1045,44 @@ async function animateMerge(ev) {
   const names = {friendship: '🌈 Сила дружбы', cmc: '⭐ Трио Друзей', apples: '🍎 Семья Эплов'};
   banner(ev.ext ? '🌈 Сила дружбы растёт!' : '✨ ' + names[ev.kind] + '!', 'gold');
 }
+// Положения карт до перерисовки, по ключу сущности (для плавного подъёма)
+function snapRects() {
+  const out = {};
+  for (const side of ['A', 'B']) {
+    const m = new Map();
+    colOf(side).querySelectorAll('.slot[data-key]').forEach(e => m.set(e.dataset.key, e.getBoundingClientRect()));
+    out[side] = m;
+  }
+  return out;
+}
+// Карты, которые сдвинулись, плавно едут из старого места на новое
+function flipFrom(snap) {
+  const anims = [];
+  for (const side of ['A', 'B']) {
+    colOf(side).querySelectorAll('.slot[data-key]').forEach(e => {
+      const o = snap[side].get(e.dataset.key); if (!o) return;
+      const n = e.getBoundingClientRect(), dx = o.left - n.left, dy = o.top - n.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      anims.push(e.animate([{transform: 'translate(' + dx + 'px,' + dy + 'px)'}, {transform: 'none'}],
+        {duration: 720, easing: 'cubic-bezier(.3,.7,.2,1)'}).finished.catch(() => {}));
+    });
+  }
+  return Promise.all(anims);
+}
 async function animateSteal(ev, st) {
   const src = elOf(ev.from, ev.fromSlot);
   const r0 = src ? src.getBoundingClientRect() : null;
-  const ghost = src ? src.cloneNode(true) : null;
-  renderBoard(st);
+  const ghost = src && r0 ? src.cloneNode(true) : null;
+  // 1) в исходном слоте появляется пустое место
+  if (src) {
+    src.removeAttribute('data-key');
+    src.className = 'slot empty vacant';
+    src.innerHTML = '<span>' + (Number(src.dataset.i) + 1) + '</span>';
+    await wait(260);
+  }
   const dst = elOf(ev.to, ev.toSlot);
   if (dst) dst.classList.add('await');
+  // 2) карта летит к сопернику / себе
   if (ghost && r0 && dst) {
     ghost.className = 'slot ghostcard';
     ghost.style.cssText = 'position:fixed;left:' + r0.left + 'px;top:' + r0.top + 'px;width:' + r0.width + 'px;height:' + r0.height + 'px;margin:0;z-index:70';
@@ -1064,7 +1095,12 @@ async function animateSteal(ev, st) {
     ], {duration: 980, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'forwards'}).finished.catch(() => {});
     ghost.remove();
   }
-  if (dst) { dst.classList.remove('await'); dst.classList.add('land'); }
+  // 3) карты ниже плавно поднимаются в освободившееся место, затем игра продолжается
+  const snap = snapRects();
+  renderBoard(st);
+  const landed = elOf(ev.to, ev.toSlot);
+  if (landed) landed.classList.add('land');
+  await flipFrom(snap);
   const name = ev.entity.kind === 'card' ? CH[ev.entity.c].n : ev.entity.name;
   banner('🦹 ' + name + ' похищен!', 'bad');
 }
@@ -1075,7 +1111,7 @@ async function playSteps(tok, steps) {
     const ev = step.ev;
     if (ev.type === 'reveal') { renderBoard(step.st); await wait(480); }
     else if (ev.type === 'merge') { await animateMerge(ev); renderBoard(step.st); await wait(520); }
-    else if (ev.type === 'steal') { await animateSteal(ev, step.st); await wait(320); }
+    else if (ev.type === 'steal') { await animateSteal(ev, step.st); await wait(200); }
     else if (ev.type === 'union') {
       renderBoard(step.st);
       banner('🦹 Злодейский союз! Каждому злодею +4⚔ +2🧠 +3🛡', 'gold');
