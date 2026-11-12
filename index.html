@@ -643,8 +643,12 @@ const knockIdx = (st, S) => {
   return (d && DB[d.k].block && !DB[d.k].steal) ? d.slot - 1 : -1;
 };
 
-function placeAt(st, S, e) {
+// Место для вошедшей карты: первый пустой слот. Похищенная карта не занимает слот,
+// на который нацелено похищение соперника (avoid), пока есть другие свободные слоты —
+// иначе взаимная кража становится невозможной.
+function placeAt(st, S, e, avoid = -1) {
   const sl = st.sides[S].slots, n = slotCount(st, S);
+  for (let i = 0; i < n; i++) if (sl[i] == null && i !== avoid) { sl[i] = e; return i; }
   for (let i = 0; i < n; i++) if (sl[i] == null) { sl[i] = e; return i; }
   return -1;
 }
@@ -784,7 +788,8 @@ class Match {
     this.st.stolen[T] = true;
     vs.slots[k] = null; vs.lost = true;
     this.st.sides[T].received = true;
-    const at = placeAt(this.st, T, e);
+    const dv = this.st.debs[V], avoid = dv && !DB[dv.k].all ? dv.slot - 1 : -1;
+    const at = placeAt(this.st, T, e, avoid);
     if (e.kind !== 'card') this.combos[T]++;
     this._frame(steps, {type:'steal', from:V, to:T, fromSlot:k, toSlot:at, entity:e});
     this._settle(T, steps);
